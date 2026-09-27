@@ -8,6 +8,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test": "node --test \"tests/**/*.test.ts\"",
     "db:migrate": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/migrate.ts",
     "db:seed-admin": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/seed-admin.ts"
   },
