@@ -12,6 +12,41 @@ export function Field({ label, children }: { label: string; children: ReactNode 
   );
 }
 
+type RadioGroupProps = {
+  label: string;
+  name: string;
+  options: { value: string; label: string }[];
+  defaultValue?: string;
+  hint?: string;
+};
+
+export function RadioGroup({ label, name, options, defaultValue, hint }: RadioGroupProps) {
+  return (
+    <fieldset>
+      <legend className="mb-1 text-sm font-medium text-slate-700">{label}</legend>
+      {hint && <p className="mb-2 text-xs text-slate-500">{hint}</p>}
+      <div className="grid grid-cols-2 gap-2">
+        {options.map((option) => (
+          <label
+            key={option.value}
+            className="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2.5 has-checked:border-emerald-600 has-checked:bg-emerald-50"
+          >
+            <input
+              type="radio"
+              name={name}
+              value={option.value}
+              defaultChecked={option.value === defaultValue}
+              required
+              className="accent-emerald-600"
+            />
+            {option.label}
+          </label>
+        ))}
+      </div>
+    </fieldset>
+  );
+}
+
 export function SubmitButton({ pending, children }: { pending: boolean; children: ReactNode }) {
   return (
     <button

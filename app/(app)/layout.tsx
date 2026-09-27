@@ -2,13 +2,23 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
 import { logout } from "@/app/login/actions";
+import { NavLinks, type NavLink } from "@/components/nav-links";
 import { getCurrentUser } from "@/lib/auth";
-import { NavLinks } from "./nav-links";
+
+const MAIN_LINKS: NavLink[] = [
+  { href: "/", label: "আজকের মেনু" },
+  { href: "/summary", label: "সারাংশ" },
+  { href: "/history", label: "ইতিহাস" },
+  { href: "/account", label: "অ্যাকাউন্ট" },
+];
 
 // Layout নেভিগেশনে ফিরে আসার সময় আবার রান হয় না, তাই প্রতিটা পেজ নিজেও requireUser() কল করে
 export default async function AppLayout({ children }: { children: ReactNode }) {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
+
+  const links =
+    user.role === "admin" ? [...MAIN_LINKS, { href: "/admin", label: "অ্যাডমিন" }] : MAIN_LINKS;
 
   return (
     <div className="min-h-screen">
@@ -29,7 +39,9 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
             </form>
           </div>
         </div>
-        {!user.mustChangePassword && <NavLinks isAdmin={user.role === "admin"} />}
+        {!user.mustChangePassword && (
+          <NavLinks links={links} className="mx-auto max-w-3xl px-2 pb-2" />
+        )}
       </header>
       <main className="mx-auto max-w-3xl px-4 py-6">{children}</main>
     </div>

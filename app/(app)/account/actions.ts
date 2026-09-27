@@ -4,15 +4,15 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { getCurrentUser, requireUser } from "@/lib/auth";
-import { CATEGORIES } from "@/lib/constants";
 import { getDb } from "@/lib/db";
-import { firstErrorMessage, formText, type FormState } from "@/lib/form";
+import { firstErrorMessage, formText, formValues, type FormState } from "@/lib/form";
 import { hashPassword, passwordSchema, verifyPassword } from "@/lib/password";
+import { categorySchema, nameSchema } from "@/lib/validation";
 
 // শুধু নাম আর ডিফল্ট গ্রুপ নেওয়া হয়; employee_id, role, is_active পাঠালেও উপেক্ষিত
 const profileSchema = z.object({
-  name: z.string().trim().min(1, "নাম দিন").max(100, "নাম সর্বোচ্চ ১০০ অক্ষরের হতে পারে"),
-  defaultCategory: z.enum(CATEGORIES, { error: "ডিফল্ট গ্রুপ বাছাই করুন" }),
+  name: nameSchema,
+  defaultCategory: categorySchema,
 });
 
 export async function updateProfile(_prev: FormState, formData: FormData): Promise<FormState> {
@@ -22,7 +22,9 @@ export async function updateProfile(_prev: FormState, formData: FormData): Promi
     name: formText(formData, "name"),
     defaultCategory: formText(formData, "defaultCategory"),
   });
-  if (!parsed.success) return { error: firstErrorMessage(parsed.error) };
+  if (!parsed.success) {
+    return { error: firstErrorMessage(parsed.error), values: formValues(formData) };
+  }
 
   const db = await getDb();
   await db.execute({
