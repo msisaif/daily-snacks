@@ -1,6 +1,11 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { CATEGORY_LABELS, type Category } from "@/lib/constants";
+import {
+  CATEGORY_LABELS,
+  MENU_STATUS_LABELS,
+  type Category,
+  type MenuStatus,
+} from "@/lib/constants";
 
 export const cardClass = "rounded-2xl border border-slate-200 bg-white p-4";
 
@@ -33,6 +38,17 @@ export function CategoryBadge({ category }: { category: Category }) {
   return (
     <Badge tone={category === "healthy" ? "green" : "orange"}>{CATEGORY_LABELS[category]}</Badge>
   );
+}
+
+const STATUS_TONES: Record<MenuStatus, keyof typeof BADGE_TONES> = {
+  draft: "gray",
+  open: "green",
+  closed: "amber",
+  delivered: "blue",
+};
+
+export function MenuStatusBadge({ status }: { status: MenuStatus }) {
+  return <Badge tone={STATUS_TONES[status]}>{MENU_STATUS_LABELS[status]}</Badge>;
 }
 
 export function PageHeader({

@@ -1,6 +1,4 @@
-import "server-only";
-
-import { getDb } from "@/lib/db";
+import { getDb } from "./db.ts";
 
 export type Settings = {
   budgetPerPerson: number;

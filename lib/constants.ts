@@ -19,7 +19,17 @@ export const ROLE_LABELS: Record<Role, string> = {
   admin: "অ্যাডমিন",
 };
 
-export const ROLE_OPTIONS = ROLES.map((value) => ({
+export const MENU_STATUSES = ["draft", "open", "closed", "delivered"] as const;
+export type MenuStatus = (typeof MENU_STATUSES)[number];
+
+export const MENU_STATUS_LABELS: Record<MenuStatus, string> = {
+  draft: "খসড়া",
+  open: "খোলা",
+  closed: "বন্ধ",
+  delivered: "ডেলিভারি হয়েছে",
+};
+
+export const ROLE_OPTIONS =ROLES.map((value) => ({
   value,
   label: ROLE_LABELS[value],
 }));
