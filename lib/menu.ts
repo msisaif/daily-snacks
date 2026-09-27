@@ -107,6 +107,26 @@ export function validateMenuItems(
   return { options };
 }
 
+export type Selection = { snackItemId: number; isDefault: boolean };
+
+// ইউজার আসলে কী পাবে: নিজের বাছাই, না থাকলে (খোলা মেনুতে) নিজের গ্রুপের ডিফল্ট
+export function effectiveChoice<T extends { snackItemId: number; category: Category; isDefault: boolean }>(
+  status: MenuStatus,
+  selection: Selection | null,
+  options: T[],
+  defaultCategory: Category,
+): { option: T; isDefault: boolean } | null {
+  if (selection) {
+    const option = options.find((o) => o.snackItemId === selection.snackItemId);
+    return option ? { option, isDefault: selection.isDefault } : null;
+  }
+  // বন্ধ মেনুতে ডিফল্টগুলো আগেই সারি হিসেবে বসে গেছে; সারি না থাকলে কিছু বরাদ্দ নেই
+  if (status !== "open") return null;
+
+  const fallback = options.find((o) => o.category === defaultCategory && o.isDefault);
+  return fallback ? { option: fallback, isDefault: true } : null;
+}
+
 // ---------- ডাটাবেস থেকে পড়া ----------
 
 function toMenu(row: Row): Menu {
@@ -193,6 +213,33 @@ export async function listSnacksForMenuForm(menuId: number | null): Promise<Snac
     args: [menuId ?? 0],
   });
   return result.rows.map(toSnackForMenu);
+}
+
+// হোমে দেখানোর মেনু: আজকের (খসড়া বাদে) + আগেভাগে খোলা ভবিষ্যতের মেনু
+export async function getHomeMenus(now = new Date()): Promise<Menu[]> {
+  await closeExpiredMenus(now);
+
+  const today = todayInDhaka(now);
+  const db = await getDb();
+  const result = await db.execute({
+    sql: `SELECT * FROM daily_menus
+          WHERE (menu_date = ? AND status != 'draft')
+             OR (menu_date > ? AND status = 'open')
+          ORDER BY menu_date`,
+    args: [today, today],
+  });
+  return result.rows.map(toMenu);
+}
+
+export async function getUserSelection(menuId: number, userId: number): Promise<Selection | null> {
+  const db = await getDb();
+  const result = await db.execute({
+    sql: "SELECT snack_item_id, is_default FROM selections WHERE menu_id = ? AND user_id = ?",
+    args: [menuId, userId],
+  });
+  const row = result.rows[0];
+  if (!row) return null;
+  return { snackItemId: Number(row.snack_item_id), isDefault: Number(row.is_default) === 1 };
 }
 
 export async function countSelections(menuId: number): Promise<number> {
@@ -372,6 +419,53 @@ export async function saveDraft(
     args: [input.menuDate],
   });
   return { menuId: Number(saved.rows[0].id) };
+}
+
+// ---------- ইউজারের বাছাই (সফল হলে null, না হলে এরর বার্তা) ----------
+
+const MENU_NOT_OPEN = "এই মেনু এখন আর বদলানো যাবে না";
+
+export async function chooseSnack(
+  menuId: number,
+  userId: number,
+  snackItemId: number,
+  now = new Date(),
+): Promise<string | null> {
+  const menu = await getMenu(menuId, now);
+  if (!menu || menu.status !== "open") return MENU_NOT_OPEN;
+
+  // WHERE-এর শর্তগুলো লেখার মুহূর্তেই আবার যাচাই করে: মেনু খোলা, কাটঅফ বাকি, আইটেম মেনুতে আছে
+  const nowIso = now.toISOString();
+  const db = await getDb();
+  const result = await db.execute({
+    sql: `INSERT INTO selections (menu_id, user_id, snack_item_id, is_default, updated_at)
+          SELECT mo.menu_id, ?, mo.snack_item_id, 0, ?
+          FROM menu_options mo
+          JOIN daily_menus m ON m.id = mo.menu_id
+          WHERE mo.menu_id = ? AND mo.snack_item_id = ?
+            AND m.status = 'open' AND m.cutoff_at > ?
+          ON CONFLICT (menu_id, user_id) DO UPDATE SET
+            snack_item_id = excluded.snack_item_id,
+            is_default = 0,
+            updated_at = excluded.updated_at`,
+    args: [userId, nowIso, menuId, snackItemId, nowIso],
+  });
+  if (result.rowsAffected === 0) return "এই আইটেমটা বাছাই করা যায়নি";
+  return null;
+}
+
+export async function clearChoice(menuId: number, userId: number, now = new Date()): Promise<string | null> {
+  const menu = await getMenu(menuId, now);
+  if (!menu || menu.status !== "open") return MENU_NOT_OPEN;
+
+  const db = await getDb();
+  await db.execute({
+    sql: `DELETE FROM selections
+          WHERE menu_id = ? AND user_id = ?
+            AND EXISTS (SELECT 1 FROM daily_menus WHERE id = ? AND status = 'open' AND cutoff_at > ?)`,
+    args: [menuId, userId, menuId, now.toISOString()],
+  });
+  return null;
 }
 
 // ---------- স্ট্যাটাস পরিবর্তন (সফল হলে null, না হলে এরর বার্তা) ----------
