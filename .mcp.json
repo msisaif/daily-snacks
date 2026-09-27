@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "code-review-graph": {
+      "command": "/Users/msi/Library/Application Support/pipx/venvs/code-review-graph/bin/python",
+      "args": [
+        "-m",
+        "code_review_graph",
+        "serve"
+      ],
+      "cwd": "/Users/msi/MedigeneIT/daily-snacks",
+      "type": "stdio"
+    }
+  }
+}
