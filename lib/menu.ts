@@ -127,6 +127,56 @@ export function effectiveChoice<T extends { snackItemId: number; category: Categ
   return fallback ? { option: fallback, isDefault: true } : null;
 }
 
+export type PersonChoice = {
+  userId: number;
+  name: string;
+  employeeId: string;
+  snackItemId: number;
+  isDefault: boolean;
+};
+
+export type ItemSummary = MenuOption & {
+  people: PersonChoice[];
+  count: number;
+  chosenCount: number;
+  defaultCount: number;
+  subtotal: number;
+};
+
+export type MenuSummary = {
+  items: ItemSummary[];
+  totalPeople: number;
+  totalCost: number;
+  healthyCount: number;
+  unhealthyCount: number;
+};
+
+export function summarizeMenu(options: MenuOption[], people: PersonChoice[]): MenuSummary {
+  const items = options.map((option) => {
+    const takers = people.filter((person) => person.snackItemId === option.snackItemId);
+    const defaultCount = takers.filter((person) => person.isDefault).length;
+    return {
+      ...option,
+      people: takers,
+      count: takers.length,
+      chosenCount: takers.length - defaultCount,
+      defaultCount,
+      subtotal: takers.length * option.price,
+    };
+  });
+
+  const countIn = (category: Category) =>
+    items.filter((item) => item.category === category).reduce((sum, item) => sum + item.count, 0);
+
+  return {
+    items,
+    totalPeople: items.reduce((sum, item) => sum + item.count, 0),
+    totalCost: items.reduce((sum, item) => sum + item.subtotal, 0),
+    healthyCount: countIn("healthy"),
+    unhealthyCount: countIn("unhealthy"),
+  };
+}
+
 // ---------- ডাটাবেস থেকে পড়া ----------
 
 function toMenu(row: Row): Menu {
@@ -240,6 +290,131 @@ export async function getUserSelection(menuId: number, userId: number): Promise<
   const row = result.rows[0];
   if (!row) return null;
   return { snackItemId: Number(row.snack_item_id), isDefault: Number(row.is_default) === 1 };
+}
+
+// খোলা মেনু: প্রত্যেক সক্রিয় ইউজার, বাছাই না থাকলে তার গ্রুপের ডিফল্ট (সেভ হয় না)
+// বন্ধ/ডেলিভারড মেনু: selections-এ যা সেভ আছে (ডিফল্টসহ), পরে কেউ নিষ্ক্রিয় হলেও হিসাব বদলায় না
+export async function getPeopleChoices(menu: Menu): Promise<PersonChoice[]> {
+  if (menu.status === "draft") return [];
+
+  const db = await getDb();
+  const result =
+    menu.status === "open"
+      ? await db.execute({
+          sql: `SELECT u.id AS user_id, u.name, u.employee_id,
+                       COALESCE(s.snack_item_id, d.snack_item_id) AS snack_item_id,
+                       CASE WHEN s.snack_item_id IS NULL THEN 1 ELSE s.is_default END AS is_default
+                FROM users u
+                LEFT JOIN selections s ON s.menu_id = ? AND s.user_id = u.id
+                LEFT JOIN menu_options d
+                  ON d.menu_id = ? AND d.category = u.default_category AND d.is_default = 1
+                WHERE u.is_active = 1
+                ORDER BY u.name COLLATE NOCASE`,
+          args: [menu.id, menu.id],
+        })
+      : await db.execute({
+          sql: `SELECT u.id AS user_id, u.name, u.employee_id, s.snack_item_id, s.is_default
+                FROM selections s
+                JOIN users u ON u.id = s.user_id
+                WHERE s.menu_id = ?
+                ORDER BY u.name COLLATE NOCASE`,
+          args: [menu.id],
+        });
+
+  return result.rows
+    .filter((row) => row.snack_item_id !== null)
+    .map((row) => ({
+      userId: Number(row.user_id),
+      name: String(row.name),
+      employeeId: String(row.employee_id),
+      snackItemId: Number(row.snack_item_id),
+      isDefault: Number(row.is_default) === 1,
+    }));
+}
+
+export async function getMenuSummary(
+  menuId: number,
+  now = new Date(),
+): Promise<{ menu: Menu; summary: MenuSummary; people: PersonChoice[] } | null> {
+  const menu = await getMenu(menuId, now);
+  if (!menu) return null;
+
+  const options = await getMenuOptions(menuId);
+  const people = await getPeopleChoices(menu);
+  return { menu, summary: summarizeMenu(options, people), people };
+}
+
+export type PastMenu = {
+  id: number;
+  menuDate: string;
+  status: MenuStatus;
+  totalPeople: number;
+  totalCost: number;
+  healthyCount: number;
+  unhealthyCount: number;
+};
+
+export async function listPastMenus(now = new Date()): Promise<PastMenu[]> {
+  await closeExpiredMenus(now);
+
+  const db = await getDb();
+  const result = await db.execute(
+    `SELECT m.id, m.menu_date, m.status,
+            COUNT(s.user_id) AS total_people,
+            COALESCE(SUM(mo.price), 0) AS total_cost,
+            COALESCE(SUM(CASE WHEN mo.category = 'healthy' THEN 1 ELSE 0 END), 0) AS healthy_count,
+            COALESCE(SUM(CASE WHEN mo.category = 'unhealthy' THEN 1 ELSE 0 END), 0) AS unhealthy_count
+     FROM daily_menus m
+     LEFT JOIN selections s ON s.menu_id = m.id
+     LEFT JOIN menu_options mo ON mo.menu_id = s.menu_id AND mo.snack_item_id = s.snack_item_id
+     WHERE m.status IN ('closed', 'delivered')
+     GROUP BY m.id
+     ORDER BY m.menu_date DESC`,
+  );
+  return result.rows.map((row) => ({
+    id: Number(row.id),
+    menuDate: String(row.menu_date),
+    status: row.status as MenuStatus,
+    totalPeople: Number(row.total_people),
+    totalCost: Number(row.total_cost),
+    healthyCount: Number(row.healthy_count),
+    unhealthyCount: Number(row.unhealthy_count),
+  }));
+}
+
+export type MonthlyReportRow = {
+  month: string; // "2026-09"
+  menuCount: number;
+  healthyCount: number;
+  unhealthyCount: number;
+  totalCost: number;
+};
+
+// শুধু বন্ধ আর ডেলিভারড মেনু গোনা হয়
+export async function getMonthlyReport(now = new Date()): Promise<MonthlyReportRow[]> {
+  await closeExpiredMenus(now);
+
+  const db = await getDb();
+  const result = await db.execute(
+    `SELECT substr(m.menu_date, 1, 7) AS month,
+            COUNT(DISTINCT m.id) AS menu_count,
+            SUM(CASE WHEN mo.category = 'healthy' THEN 1 ELSE 0 END) AS healthy_count,
+            SUM(CASE WHEN mo.category = 'unhealthy' THEN 1 ELSE 0 END) AS unhealthy_count,
+            SUM(mo.price) AS total_cost
+     FROM daily_menus m
+     JOIN selections s ON s.menu_id = m.id
+     JOIN menu_options mo ON mo.menu_id = s.menu_id AND mo.snack_item_id = s.snack_item_id
+     WHERE m.status IN ('closed', 'delivered')
+     GROUP BY month
+     ORDER BY month DESC`,
+  );
+  return result.rows.map((row) => ({
+    month: String(row.month),
+    menuCount: Number(row.menu_count),
+    healthyCount: Number(row.healthy_count),
+    unhealthyCount: Number(row.unhealthy_count),
+    totalCost: Number(row.total_cost),
+  }));
 }
 
 export async function countSelections(menuId: number): Promise<number> {

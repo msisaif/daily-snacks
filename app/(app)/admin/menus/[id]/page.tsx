@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ActionButton } from "@/components/action-button";
 import { Badge, cardClass, CategoryBadge, MenuStatusBadge, PageHeader } from "@/components/ui";
@@ -68,6 +69,11 @@ export default async function MenuDetailPage({ params }: PageProps<"/admin/menus
           </p>
         )}
         {menu.note && <p className="text-slate-600">নোট: {menu.note}</p>}
+        {menu.status !== "draft" && (
+          <Link href={`/history/${menuId}`} className="inline-block pt-1 text-emerald-700 underline">
+            সারাংশ দেখুন (কে কী পাচ্ছে)
+          </Link>
+        )}
       </section>
 
       {menu.status === "draft" ? (

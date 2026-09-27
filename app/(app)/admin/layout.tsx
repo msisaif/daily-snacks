@@ -7,6 +7,7 @@ const ADMIN_LINKS: NavLink[] = [
   { href: "/admin/users", label: "ইউজার" },
   { href: "/admin/snacks", label: "নাস্তা" },
   { href: "/admin/settings", label: "সেটিংস" },
+  { href: "/admin/reports", label: "রিপোর্ট" },
 ];
 
 export default async function AdminLayout({ children }: { children: ReactNode }) {

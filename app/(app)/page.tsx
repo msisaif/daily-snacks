@@ -109,6 +109,10 @@ async function MenuSection({ menu, user }: { menu: Menu; user: CurrentUser }) {
         hasOwnChoice={hasOwnChoice}
         canChange={canChange}
       />
+
+      <Link href="/summary" className="block text-center text-sm text-emerald-700 underline">
+        সবাই কী নিচ্ছে, সারাংশ দেখুন
+      </Link>
     </section>
   );
 }
