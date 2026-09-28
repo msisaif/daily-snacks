@@ -18,7 +18,7 @@ export default async function PasswordPage() {
           অ্যাপ ব্যবহারের আগে অস্থায়ী পাসওয়ার্ডের বদলে নিজের একটা নতুন পাসওয়ার্ড সেট করুন।
         </p>
       )}
-      <section className="rounded-2xl border border-slate-200 bg-white p-4">
+      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <PasswordForm />
       </section>
     </div>

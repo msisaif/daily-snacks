@@ -15,10 +15,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
 
   return (
     <div className="space-y-5">
-      <NavLinks
-        links={ADMIN_LINKS}
-        className="rounded-full border border-slate-200 bg-white p-1"
-      />
+      <NavLinks links={ADMIN_LINKS} />
       {children}
     </div>
   );

@@ -27,7 +27,7 @@ export default async function MenusPage() {
           এখনো কোনো মেনু নেই। প্রথম মেনুটা বানান।
         </p>
       ) : (
-        <ul className="divide-y divide-slate-100 overflow-hidden rounded-2xl border border-slate-200 bg-white">
+        <ul className="divide-y divide-slate-100 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
           {menus.map((menu) => (
             <li key={menu.id}>
               <Link

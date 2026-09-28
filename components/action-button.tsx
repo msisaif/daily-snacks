@@ -5,9 +5,9 @@ import { FormMessage } from "@/components/form";
 import type { FormState } from "@/lib/form";
 
 const VARIANTS = {
-  primary: "bg-emerald-600 text-white hover:bg-emerald-700",
-  secondary: "border border-slate-300 bg-white text-slate-700 hover:bg-slate-100",
-  danger: "bg-red-600 text-white hover:bg-red-700",
+  primary: "bg-emerald-600 text-white shadow-sm hover:bg-emerald-700",
+  secondary: "border border-slate-300 bg-white text-slate-700 shadow-xs hover:bg-slate-50",
+  danger: "bg-red-600 text-white shadow-sm hover:bg-red-700",
 };
 
 type Props = {

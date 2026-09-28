@@ -39,7 +39,7 @@ export default async function UsersPage() {
         }
       />
 
-      <ul className="divide-y divide-slate-100 overflow-hidden rounded-2xl border border-slate-200 bg-white">
+      <ul className="divide-y divide-slate-100 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         {users.map((user) => (
           <li key={user.id}>
             <Link

@@ -35,7 +35,7 @@ export default async function HistoryPage() {
       {[...byMonth].map(([month, monthMenus]) => (
         <section key={month}>
           <h2 className="mb-2 font-semibold text-slate-700">{formatMonth(month)}</h2>
-          <ul className="divide-y divide-slate-100 overflow-hidden rounded-2xl border border-slate-200 bg-white">
+          <ul className="divide-y divide-slate-100 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
             {monthMenus.map((menu) => (
               <li key={menu.id}>
                 <Link

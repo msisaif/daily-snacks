@@ -20,7 +20,7 @@ export default async function ReportsPage() {
       {rows.length === 0 ? (
         <p className={`${cardClass} py-10 text-center text-slate-600`}>এখনো কোনো হিসাব নেই।</p>
       ) : (
-        <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
+        <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-left text-slate-600">
               <tr>

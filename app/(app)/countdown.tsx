@@ -31,16 +31,21 @@ export function Countdown({ cutoffAt, cutoffLabel }: Props) {
   const remaining = now === null ? null : new Date(cutoffAt).getTime() - now;
 
   return (
-    <p className="text-sm text-slate-600">
-      কাটঅফ: <span className="font-medium">{cutoffLabel}</span>
+    <div className="flex flex-wrap items-center gap-2 text-sm">
+      <span className="text-slate-500">
+        কাটঅফ <span className="font-medium text-slate-700">{cutoffLabel}</span>
+      </span>
       {remaining !== null &&
         (remaining > 0 ? (
-          <span className="ml-2 rounded-full bg-amber-50 px-2 py-0.5 text-amber-800">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 font-medium text-amber-800 ring-1 ring-inset ring-amber-600/20">
+            <span className="size-1.5 animate-pulse rounded-full bg-amber-500" />
             বাকি {formatDuration(remaining)}
           </span>
         ) : (
-          <span className="ml-2 text-red-600">সময় শেষ</span>
+          <span className="rounded-full bg-red-50 px-2.5 py-1 font-medium text-red-700 ring-1 ring-inset ring-red-600/20">
+            সময় শেষ
+          </span>
         ))}
-    </p>
+    </div>
   );
 }

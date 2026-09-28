@@ -13,7 +13,7 @@ export default async function AccountPage() {
     <div className="mx-auto max-w-md space-y-6">
       <h1 className="text-xl font-bold">আমার অ্যাকাউন্ট</h1>
 
-      <dl className="grid grid-cols-2 gap-3 rounded-2xl border border-slate-200 bg-white p-4 text-sm">
+      <dl className="grid grid-cols-2 gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm text-sm">
         <div>
           <dt className="text-slate-500">Employee ID</dt>
           <dd className="font-medium">{user.employeeId}</dd>
@@ -24,13 +24,13 @@ export default async function AccountPage() {
         </div>
       </dl>
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-4">
+      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <ProfileForm name={user.name} defaultCategory={user.defaultCategory} />
       </section>
 
       <Link
         href="/account/password"
-        className="block rounded-2xl border border-slate-200 bg-white p-4 text-center font-medium text-emerald-700 hover:bg-slate-50"
+        className="block rounded-2xl border border-slate-200 bg-white p-4 shadow-sm text-center font-medium text-emerald-700 hover:bg-slate-50"
       >
         পাসওয়ার্ড বদলান
       </Link>

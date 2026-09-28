@@ -47,7 +47,7 @@ export default async function SnacksPage() {
           এখনো কোনো আইটেম নেই। প্রথম আইটেমটা যোগ করুন।
         </p>
       ) : (
-        <ul className="divide-y divide-slate-100 overflow-hidden rounded-2xl border border-slate-200 bg-white">
+        <ul className="divide-y divide-slate-100 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
           {snacks.map((snack) => (
             <li key={snack.id}>
               <Link
