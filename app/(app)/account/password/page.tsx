@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
+import { Callout, cardClass, PageHeader } from "@/components/ui";
 import { getCurrentUser } from "@/lib/auth";
 import { PasswordForm } from "./password-form";
 
@@ -11,14 +12,20 @@ export default async function PasswordPage() {
   if (!user) redirect("/login");
 
   return (
-    <div className="mx-auto max-w-md space-y-4">
-      <h1 className="text-xl font-bold">পাসওয়ার্ড বদলান</h1>
+    <div className="stagger space-y-6">
+      <PageHeader
+        title="পাসওয়ার্ড বদলান"
+        description="বদলানোর পর অন্য সব ডিভাইস থেকে লগআউট হয়ে যাবে।"
+        icon="lock"
+        tone="violet"
+        backHref={user.mustChangePassword ? undefined : "/account"}
+      />
       {user.mustChangePassword && (
-        <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
+        <Callout tone="amber" icon="alert">
           অ্যাপ ব্যবহারের আগে অস্থায়ী পাসওয়ার্ডের বদলে নিজের একটা নতুন পাসওয়ার্ড সেট করুন।
-        </p>
+        </Callout>
       )}
-      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <section className={cardClass}>
         <PasswordForm />
       </section>
     </div>

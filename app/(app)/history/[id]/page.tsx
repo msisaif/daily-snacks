@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { MenuSummaryView } from "@/components/menu-summary";
-import { MenuStatusBadge, PageHeader } from "@/components/ui";
+import { Callout, MenuStatusBadge, PageHeader } from "@/components/ui";
 import { requireUser } from "@/lib/auth";
 import { formatDate } from "@/lib/format";
 import { getMenuSummary } from "@/lib/menu";
@@ -20,10 +20,20 @@ export default async function HistoryDetailPage({ params }: PageProps<"/history/
   const { menu, summary, people } = data;
 
   return (
-    <div className="space-y-3">
-      <PageHeader title={formatDate(menu.menuDate)} backHref="/history" />
-      <MenuStatusBadge status={menu.status} />
-      {menu.note && <p className="text-sm text-slate-600">নোট: {menu.note}</p>}
+    <div className="stagger space-y-6">
+      <PageHeader
+        title={formatDate(menu.menuDate)}
+        description="এই দিনের নাস্তার হিসাব"
+        icon="calendar"
+        tone="amber"
+        badge={<MenuStatusBadge status={menu.status} />}
+        backHref="/history"
+      />
+      {menu.note && (
+        <Callout tone="amber" icon="note">
+          নোট: {menu.note}
+        </Callout>
+      )}
       <MenuSummaryView status={menu.status} summary={summary} people={people} />
     </div>
   );

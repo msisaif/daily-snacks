@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { cardClass, PageHeader } from "@/components/ui";
 import { requireAdmin } from "@/lib/auth";
+import { formatTaka } from "@/lib/format";
 import { getSettings } from "@/lib/settings";
 import { createSnack } from "../actions";
 import { SnackForm } from "../snack-form";
@@ -12,8 +13,14 @@ export default async function NewSnackPage() {
   const { budgetPerPerson } = await getSettings();
 
   return (
-    <div className="mx-auto max-w-md">
-      <PageHeader title="নতুন আইটেম" backHref="/admin/snacks" />
+    <div className="stagger space-y-6">
+      <PageHeader
+        title="নতুন আইটেম"
+        description={`দাম জনপ্রতি বাজেটের (${formatTaka(budgetPerPerson)}) বেশি হতে পারবে না।`}
+        icon="cookie"
+        tone="orange"
+        backHref="/admin/snacks"
+      />
       <section className={cardClass}>
         <SnackForm action={createSnack} budget={budgetPerPerson} submitLabel="আইটেম যোগ করুন" />
       </section>

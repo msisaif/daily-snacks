@@ -2,38 +2,46 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { Icon, type IconName } from "@/components/icons";
 
-export type NavLink = { href: string; label: string };
+export type NavLink = { href: string; label: string; icon: IconName };
 
+// display (flex/grid/hidden) ক্লাস বাইরে থেকে className-এ আসে
 const VARIANTS = {
-  tabs: {
-    nav: "-mb-px flex gap-1 overflow-x-auto",
-    link: "shrink-0 border-b-2 px-3 py-2.5 font-medium",
-    active: "border-emerald-600 text-emerald-700",
-    inactive: "border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-800",
+  header: {
+    nav: "no-scrollbar gap-1 overflow-x-auto",
+    link: "flex shrink-0 items-center gap-2 rounded-full px-3.5 py-2 text-sm font-medium transition duration-200",
+    active: "bg-linear-to-br from-emerald-500 to-teal-600 text-white shadow-md shadow-emerald-600/25",
+    inactive: "text-slate-600 hover:bg-white hover:text-slate-900 hover:shadow-sm",
   },
-  pills: {
-    nav: "flex gap-1 overflow-x-auto rounded-xl border border-slate-200 bg-white p-1 shadow-sm",
-    link: "shrink-0 rounded-lg px-3 py-1.5 font-medium",
-    active: "bg-emerald-600 text-white shadow-sm",
-    inactive: "text-slate-600 hover:bg-slate-100",
+  sub: {
+    nav: "no-scrollbar gap-1 overflow-x-auto rounded-2xl border border-slate-200/70 bg-slate-100/80 p-1",
+    link: "flex shrink-0 items-center gap-2 rounded-xl px-3.5 py-2 text-sm font-medium transition duration-200",
+    active: "bg-white text-emerald-700 shadow-sm ring-1 ring-slate-200/70",
+    inactive: "text-slate-600 hover:bg-white/60 hover:text-slate-900",
+  },
+  bottom: {
+    nav: "auto-cols-fr grid-flow-col",
+    link: "group flex min-w-0 flex-col items-center gap-1 px-1 pt-2 pb-2.5 text-[11px] font-medium transition",
+    active: "text-emerald-700",
+    inactive: "text-slate-500",
   },
 };
 
 export function NavLinks({
   links,
-  variant = "pills",
+  variant,
   className = "",
 }: {
   links: NavLink[];
-  variant?: keyof typeof VARIANTS;
+  variant: keyof typeof VARIANTS;
   className?: string;
 }) {
   const pathname = usePathname();
   const styles = VARIANTS[variant];
 
   return (
-    <nav className={`text-sm ${styles.nav} ${className}`}>
+    <nav className={`${styles.nav} ${className}`}>
       {links.map((link) => {
         const isActive = pathname === link.href || pathname.startsWith(`${link.href}/`);
         return (
@@ -43,7 +51,23 @@ export function NavLinks({
             aria-current={isActive ? "page" : undefined}
             className={`${styles.link} ${isActive ? styles.active : styles.inactive}`}
           >
-            {link.label}
+            {variant === "bottom" ? (
+              <>
+                <span
+                  className={`flex h-7 w-12 items-center justify-center rounded-full transition duration-200 ${
+                    isActive ? "bg-emerald-100 text-emerald-700" : "group-hover:bg-slate-100"
+                  }`}
+                >
+                  <Icon name={link.icon} className="size-5" />
+                </span>
+                <span className="max-w-full truncate">{link.label}</span>
+              </>
+            ) : (
+              <>
+                <Icon name={link.icon} className="size-4" />
+                {link.label}
+              </>
+            )}
           </Link>
         );
       })}

@@ -1,8 +1,18 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { cardClass, MenuStatusBadge, PageHeader } from "@/components/ui";
+import { Icon } from "@/components/icons";
+import {
+  CategorySplit,
+  DateTile,
+  EmptyState,
+  listClass,
+  listRowClass,
+  MenuStatusBadge,
+  PageHeader,
+} from "@/components/ui";
 import { requireUser } from "@/lib/auth";
-import { formatDate, formatMonth, formatNumber, formatTaka } from "@/lib/format";
+import { CATEGORY_SHORT_LABELS } from "@/lib/constants";
+import { formatDateParts, formatMonth, formatNumber, formatTaka } from "@/lib/format";
 import { listPastMenus, type PastMenu } from "@/lib/menu";
 
 export const metadata: Metadata = { title: "ইতিহাস" };
@@ -11,13 +21,22 @@ export default async function HistoryPage() {
   await requireUser();
   const menus = await listPastMenus();
 
+  const header = (
+    <PageHeader
+      title="আগের মেনুগুলো"
+      description="মেনু বন্ধ হলে এখানে তার হিসাব দেখা যায়।"
+      icon="history"
+      tone="amber"
+    />
+  );
+
   if (menus.length === 0) {
     return (
-      <div>
-        <PageHeader title="আগের মেনুগুলো" />
-        <p className={`${cardClass} py-10 text-center text-slate-600`}>
-          এখনো কোনো মেনু বন্ধ হয়নি। মেনু বন্ধ হলে এখানে তার হিসাব দেখা যাবে।
-        </p>
+      <div className="stagger space-y-6">
+        {header}
+        <EmptyState icon="history" title="এখনো কোনো মেনু বন্ধ হয়নি">
+          মেনু বন্ধ হলে এখানে তার হিসাব দেখা যাবে।
+        </EmptyState>
       </div>
     );
   }
@@ -30,29 +49,38 @@ export default async function HistoryPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <PageHeader title="আগের মেনুগুলো" />
+    <div className="stagger space-y-8">
+      {header}
       {[...byMonth].map(([month, monthMenus]) => (
-        <section key={month}>
-          <h2 className="mb-2 font-semibold text-slate-700">{formatMonth(month)}</h2>
-          <ul className="divide-y divide-slate-100 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <section key={month} className="space-y-3">
+          <h2 className="flex items-center gap-3 font-display text-lg font-bold text-slate-700">
+            {formatMonth(month)}
+            <span className="h-px flex-1 bg-linear-to-r from-slate-200 to-transparent" />
+          </h2>
+          <ul className={listClass}>
             {monthMenus.map((menu) => (
               <li key={menu.id}>
-                <Link
-                  href={`/history/${menu.id}`}
-                  className="flex items-center justify-between gap-3 p-3 hover:bg-slate-50"
-                >
-                  <div className="min-w-0">
-                    <p className="font-medium">{formatDate(menu.menuDate)}</p>
+                <Link href={`/history/${menu.id}`} className={listRowClass}>
+                  <DateTile date={menu.menuDate} status={menu.status} />
+                  <div className="min-w-0 flex-1">
+                    <p className="font-semibold text-slate-900">{formatDateParts(menu.menuDate).weekday}</p>
                     <p className="text-sm text-slate-500">
-                      {formatNumber(menu.totalPeople)} জন · হেলদি {formatNumber(menu.healthyCount)} ·
-                      আনহেলদি {formatNumber(menu.unhealthyCount)}
+                      {formatNumber(menu.totalPeople)} জন · {CATEGORY_SHORT_LABELS.healthy}{" "}
+                      {formatNumber(menu.healthyCount)} · {CATEGORY_SHORT_LABELS.unhealthy}{" "}
+                      {formatNumber(menu.unhealthyCount)}
                     </p>
+                    <div className="mt-2 max-w-60">
+                      <CategorySplit healthy={menu.healthyCount} unhealthy={menu.unhealthyCount} compact />
+                    </div>
                   </div>
-                  <div className="flex shrink-0 flex-col items-end gap-1">
-                    <span className="font-semibold">{formatTaka(menu.totalCost)}</span>
+                  <div className="flex shrink-0 flex-col items-end gap-1.5">
+                    <span className="text-lg font-bold text-slate-900">{formatTaka(menu.totalCost)}</span>
                     <MenuStatusBadge status={menu.status} />
                   </div>
+                  <Icon
+                    name="chevron-right"
+                    className="hidden size-5 shrink-0 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-slate-500 sm:block"
+                  />
                 </Link>
               </li>
             ))}

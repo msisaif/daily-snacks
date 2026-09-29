@@ -25,6 +25,10 @@ const monthFormat = new Intl.DateTimeFormat("bn-BD", {
   year: "numeric",
 });
 
+const dayFormat = new Intl.DateTimeFormat("bn-BD", { timeZone: TIME_ZONE, day: "numeric" });
+const shortMonthFormat = new Intl.DateTimeFormat("bn-BD", { timeZone: TIME_ZONE, month: "short" });
+const weekdayFormat = new Intl.DateTimeFormat("bn-BD", { timeZone: TIME_ZONE, weekday: "long" });
+
 export function formatNumber(value: number): string {
   return numberFormat.format(value);
 }
@@ -36,6 +40,16 @@ export function formatTaka(amount: number): string {
 // "2026-09-28" -> "সোমবার, ২৮ সেপ্টেম্বর, ২০২৬"
 export function formatDate(date: string): string {
   return dateFormat.format(new Date(`${date}T12:00:00+06:00`));
+}
+
+// "2026-09-28" -> { day: "২৮", month: "সেপ্ট", weekday: "সোমবার" }, তারিখের টাইলের জন্য
+export function formatDateParts(date: string): { day: string; month: string; weekday: string } {
+  const value = new Date(`${date}T12:00:00+06:00`);
+  return {
+    day: dayFormat.format(value),
+    month: shortMonthFormat.format(value),
+    weekday: weekdayFormat.format(value),
+  };
 }
 
 // ISO UTC -> "২৮ সেপ, ৪:০০ বিকাল" (ঢাকা সময়)

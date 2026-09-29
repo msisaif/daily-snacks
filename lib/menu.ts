@@ -73,7 +73,7 @@ export function validateMenuItems(
     items.some((item) => item.category === category),
   );
   if (!hasBothCategories) {
-    return { error: "অন্তত একটা হেলদি আর একটা আনহেলদি আইটেম লাগবে" };
+    return { error: "দুই গ্রুপ থেকেই অন্তত একটা করে আইটেম লাগবে" };
   }
 
   const options: OptionInput[] = [];

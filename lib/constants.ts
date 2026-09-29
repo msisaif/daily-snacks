@@ -2,8 +2,14 @@ export const CATEGORIES = ["healthy", "unhealthy"] as const;
 export type Category = (typeof CATEGORIES)[number];
 
 export const CATEGORY_LABELS: Record<Category, string> = {
-  healthy: "হেলদি",
-  unhealthy: "আনহেলদি",
+  healthy: "ফ্রেশ এবং নিউট্রিশন",
+  unhealthy: "ক্রিসপি এন্ড স্ন্যাকস",
+};
+
+// যেখানে জায়গা কম (টেবিলের মাথা, এক লাইনের হিসাব)
+export const CATEGORY_SHORT_LABELS: Record<Category, string> = {
+  healthy: "ফ্রেশ",
+  unhealthy: "ক্রিসপি",
 };
 
 export const CATEGORY_OPTIONS = CATEGORIES.map((value) => ({

@@ -1,10 +1,20 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import Link from "next/link";
-import { Badge, CategoryBadge, linkButtonClass, PageHeader } from "@/components/ui";
+import { Icon } from "@/components/icons";
+import {
+  Badge,
+  buttonClass,
+  CATEGORY_STYLES,
+  CategoryIcon,
+  EmptyState,
+  IconTile,
+  PageHeader,
+} from "@/components/ui";
 import { requireAdmin } from "@/lib/auth";
-import type { Category } from "@/lib/constants";
+import { CATEGORIES, CATEGORY_LABELS, type Category } from "@/lib/constants";
 import { getDb } from "@/lib/db";
-import { formatTaka } from "@/lib/format";
+import { formatNumber, formatTaka } from "@/lib/format";
 import { getSettings } from "@/lib/settings";
 
 export const metadata: Metadata = { title: "নাস্তা" };
@@ -14,7 +24,7 @@ export default async function SnacksPage() {
 
   const db = await getDb();
   const result = await db.execute(
-    `SELECT id, name, description, price, category, is_active
+    `SELECT id, name, description, price, category, image_url, is_active
      FROM snack_items
      ORDER BY is_active DESC, category, name COLLATE NOCASE`,
   );
@@ -24,53 +34,96 @@ export default async function SnacksPage() {
     description: row.description ? String(row.description) : "",
     price: Number(row.price),
     category: row.category as Category,
+    imageUrl: row.image_url ? String(row.image_url) : "",
     isActive: Number(row.is_active) === 1,
   }));
   const { budgetPerPerson } = await getSettings();
 
+  const newSnackButton = (
+    <Link href="/admin/snacks/new" className={buttonClass.primary}>
+      <Icon name="plus" className="size-4" />
+      নতুন আইটেম
+    </Link>
+  );
+
   return (
-    <div>
+    <div className="stagger space-y-8">
       <PageHeader
         title="নাস্তার আইটেম"
-        action={
-          <Link href="/admin/snacks/new" className={linkButtonClass}>
-            + নতুন আইটেম
-          </Link>
-        }
+        description={`জনপ্রতি বাজেট ${formatTaka(budgetPerPerson)}`}
+        icon="cookie"
+        tone="orange"
+        action={newSnackButton}
       />
-      <p className="mb-3 text-sm text-slate-600">
-        জনপ্রতি বাজেট: <span className="font-medium">{formatTaka(budgetPerPerson)}</span>
-      </p>
 
       {snacks.length === 0 ? (
-        <p className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-slate-600">
-          এখনো কোনো আইটেম নেই। প্রথম আইটেমটা যোগ করুন।
-        </p>
+        <EmptyState icon="cookie" title="এখনো কোনো আইটেম নেই" action={newSnackButton}>
+          প্রথম আইটেমটা যোগ করুন।
+        </EmptyState>
       ) : (
-        <ul className="divide-y divide-slate-100 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-          {snacks.map((snack) => (
-            <li key={snack.id}>
-              <Link
-                href={`/admin/snacks/${snack.id}`}
-                className={`flex items-center justify-between gap-3 p-3 hover:bg-slate-50 ${
-                  snack.isActive ? "" : "opacity-60"
-                }`}
-              >
-                <div className="min-w-0">
-                  <p className="truncate font-medium">{snack.name}</p>
-                  {snack.description && (
-                    <p className="truncate text-sm text-slate-500">{snack.description}</p>
-                  )}
-                </div>
-                <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
-                  <span className="font-medium">{formatTaka(snack.price)}</span>
-                  <CategoryBadge category={snack.category} />
-                  {!snack.isActive && <Badge>নিষ্ক্রিয়</Badge>}
-                </div>
-              </Link>
-            </li>
-          ))}
-        </ul>
+        CATEGORIES.map((category) => {
+          const items = snacks.filter((snack) => snack.category === category);
+          const styles = CATEGORY_STYLES[category];
+          return (
+            <section key={category} className="space-y-3">
+              <div className="flex items-center gap-2.5">
+                <IconTile icon={styles.icon} tone={styles.tone} size="sm" />
+                <h2 className={`font-display text-lg leading-tight font-bold ${styles.text}`}>{CATEGORY_LABELS[category]}</h2>
+                <span className="text-sm text-slate-500">{formatNumber(items.length)}টি</span>
+              </div>
+              {items.length === 0 ? (
+                <p className="rounded-2xl border border-dashed border-slate-300 bg-white/60 p-6 text-center text-sm text-slate-500">
+                  এই গ্রুপে আইটেম নেই
+                </p>
+              ) : (
+                <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {items.map((snack) => (
+                    <li key={snack.id}>
+                      <Link
+                        href={`/admin/snacks/${snack.id}`}
+                        className={`group flex h-full items-center gap-3.5 rounded-2xl border border-slate-200/70 bg-white p-3 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-lift ${
+                          snack.isActive ? "" : "opacity-60 grayscale"
+                        }`}
+                      >
+                        {snack.imageUrl ? (
+                          <Image
+                            src={snack.imageUrl}
+                            alt=""
+                            width={112}
+                            height={112}
+                            unoptimized
+                            className="size-16 shrink-0 rounded-xl bg-slate-100 object-cover"
+                          />
+                        ) : (
+                          <span
+                            className={`flex size-16 shrink-0 items-center justify-center rounded-xl bg-linear-to-br ${
+                              styles.placeholders[snack.id % styles.placeholders.length]
+                            }`}
+                          >
+                            <CategoryIcon
+                              category={category}
+                              className="size-7 transition duration-300 group-hover:scale-110 group-hover:-rotate-6"
+                            />
+                          </span>
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <p className="line-clamp-2 leading-snug font-semibold text-slate-900">{snack.name}</p>
+                          {snack.description && (
+                            <p className="truncate text-xs text-slate-500">{snack.description}</p>
+                          )}
+                          <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                            <span className="text-sm font-bold text-slate-900">{formatTaka(snack.price)}</span>
+                            {!snack.isActive && <Badge>নিষ্ক্রিয়</Badge>}
+                          </div>
+                        </div>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          );
+        })
       )}
     </div>
   );

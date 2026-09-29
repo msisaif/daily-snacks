@@ -9,5 +9,8 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!login|_next/static|_next/image|favicon.ico).*)"],
+  // লগইন পেজ, স্ট্যাটিক ফাইল, আইকন আর PWA-র ফাইলগুলো কুকি ছাড়াই আসতে হবে
+  matcher: [
+    "/((?!login|_next/static|_next/image|favicon.ico|icon.svg|apple-icon.png|manifest.webmanifest|sw.js|offline.html|icons/).*)",
+  ],
 };

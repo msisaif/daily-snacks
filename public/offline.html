@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="bn">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>অফলাইন · ডেইলি স্ন্যাকস</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        text-align: center;
+        color: #0f172a;
+        font-family: "Noto Sans Bengali", system-ui, sans-serif;
+        background:
+          radial-gradient(40rem 28rem at -10% -10%, rgb(52 211 153 / 0.2), transparent 70%),
+          radial-gradient(36rem 26rem at 110% -5%, rgb(251 191 36 / 0.18), transparent 70%),
+          #f7f8f3;
+      }
+      svg {
+        width: 72px;
+        height: 72px;
+        filter: drop-shadow(0 8px 14px rgb(5 150 105 / 0.3));
+      }
+      h1 {
+        margin: 20px 0 8px;
+        font-size: 24px;
+      }
+      p {
+        margin: 0 0 24px;
+        color: #64748b;
+      }
+      button {
+        border: 0;
+        border-radius: 12px;
+        padding: 12px 20px;
+        font: inherit;
+        font-weight: 600;
+        color: #fff;
+        cursor: pointer;
+        background: linear-gradient(135deg, #10b981, #0d9488);
+        box-shadow: 0 8px 20px -8px rgb(5 150 105 / 0.6);
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <svg viewBox="0 0 64 64" aria-hidden="true">
+        <defs>
+          <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#34d399" />
+            <stop offset="0.55" stop-color="#059669" />
+            <stop offset="1" stop-color="#0f766e" />
+          </linearGradient>
+          <mask id="bite">
+            <rect width="64" height="64" fill="#fff" />
+            <circle cx="64" cy="0" r="12.5" fill="#000" />
+            <circle cx="51.7" cy="2.2" r="4.5" fill="#000" />
+            <circle cx="55.2" cy="8.8" r="4.5" fill="#000" />
+            <circle cx="61.8" cy="12.3" r="4.5" fill="#000" />
+          </mask>
+        </defs>
+        <rect width="64" height="64" rx="16" fill="url(#bg)" mask="url(#bite)" />
+        <g transform="translate(10 13.5) scale(1.75)" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 9h13v4a6 6 0 0 1-6 6h-1a6 6 0 0 1-6-6V9Z" />
+          <path d="M17 10h1.5a2.5 2.5 0 0 1 0 5H17" />
+          <path d="M8 3v3M12 3v3" />
+        </g>
+      </svg>
+      <h1>ইন্টারনেট সংযোগ নেই</h1>
+      <p>সংযোগ ফিরলে আবার চেষ্টা করুন।</p>
+      <button type="button" onclick="location.reload()">আবার চেষ্টা করুন</button>
+    </main>
+  </body>
+</html>

@@ -1,8 +1,15 @@
 "use client";
 
 import { useActionState } from "react";
-import { Field, FormMessage, inputClass, RadioGroup, SubmitButton } from "@/components/form";
-import { CATEGORY_OPTIONS, type Category } from "@/lib/constants";
+import {
+  CATEGORY_RADIO_OPTIONS,
+  Field,
+  FormMessage,
+  inputClass,
+  RadioGroup,
+  SubmitButton,
+} from "@/components/form";
+import type { Category } from "@/lib/constants";
 import type { FormState } from "@/lib/form";
 import { updateProfile } from "./actions";
 
@@ -16,24 +23,27 @@ export function ProfileForm({ name, defaultCategory }: Props) {
   const values = state.values;
 
   return (
-    <form action={formAction} className="space-y-4">
+    <form action={formAction} className="space-y-5">
       <FormMessage error={state.error} success={state.success} />
-      <Field label="নাম">
-        <input
-          name="name"
-          defaultValue={values?.name ?? name}
-          required
-          maxLength={100}
-          className={inputClass}
-        />
-      </Field>
-      <RadioGroup
-        label="ডিফল্ট গ্রুপ"
-        hint="কোনো দিন কিছু না বাছলে এই গ্রুপের ডিফল্ট আইটেমটা পাবেন।"
-        name="defaultCategory"
-        options={CATEGORY_OPTIONS}
-        defaultValue={values?.defaultCategory ?? defaultCategory}
-      />
+      <div className="grid gap-5 sm:grid-cols-2">
+        <Field label="নাম">
+          <input
+            name="name"
+            defaultValue={values?.name ?? name}
+            required
+            maxLength={100}
+            className={inputClass}
+          />
+        </Field>
+        <div className="sm:col-span-2">
+          <RadioGroup
+            label="ডিফল্ট গ্রুপ"
+            name="defaultCategory"
+            options={CATEGORY_RADIO_OPTIONS}
+            defaultValue={values?.defaultCategory ?? defaultCategory}
+          />
+        </div>
+      </div>
       <SubmitButton pending={pending}>সেভ করুন</SubmitButton>
     </form>
   );

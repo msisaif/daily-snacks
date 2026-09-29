@@ -2,4 +2,143 @@
 
 @theme inline {
   --font-sans: var(--font-noto-bengali), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-baloo), var(--font-noto-bengali), ui-sans-serif, system-ui, sans-serif;
+}
+
+@theme {
+  --shadow-card: 0 1px 2px rgb(15 23 42 / 0.04), 0 12px 32px -16px rgb(15 23 42 / 0.16);
+  --shadow-lift: 0 2px 4px rgb(15 23 42 / 0.05), 0 20px 40px -16px rgb(15 23 42 / 0.25);
+
+  --animate-rise: rise 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+  --animate-pop: pop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  --animate-float: float 6s ease-in-out infinite;
+  --animate-steam: steam 3s ease-in-out infinite;
+  --animate-grow: grow 0.9s cubic-bezier(0.22, 1, 0.36, 1) both;
+
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(12px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  @keyframes pop {
+    from {
+      opacity: 0;
+      transform: scale(0.5);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  @keyframes float {
+    0%,
+    100% {
+      transform: none;
+    }
+    50% {
+      transform: translateY(-6px) rotate(-3deg);
+    }
+  }
+
+  /* লোগোর কাপের ধোঁয়া */
+  @keyframes steam {
+    0% {
+      opacity: 0;
+      transform: translateY(1.5px);
+    }
+    40% {
+      opacity: 1;
+    }
+    100% {
+      opacity: 0;
+      transform: translateY(-2.5px);
+    }
+  }
+
+  @keyframes grow {
+    from {
+      transform: scaleX(0);
+    }
+    to {
+      transform: none;
+    }
+  }
+}
+
+/* পেজের অংশগুলো একটার পর একটা ভেসে ওঠে */
+@utility stagger {
+  & > * {
+    animation: var(--animate-rise);
+  }
+  & > :nth-child(2) {
+    animation-delay: 70ms;
+  }
+  & > :nth-child(3) {
+    animation-delay: 140ms;
+  }
+  & > :nth-child(4) {
+    animation-delay: 210ms;
+  }
+  & > :nth-child(n + 5) {
+    animation-delay: 280ms;
+  }
+}
+
+/* হোম স্ক্রিন থেকে অ্যাপ হিসেবে খোলা থাকলে */
+@custom-variant standalone (@media (display-mode: standalone));
+
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@layer base {
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    background-color: #f7f8f3;
+    /* ফোন আড়াআড়ি ধরলে নচ/ক্যামেরার নিচে লেখা যাতে না যায় */
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+
+  /* পেছনের হালকা রঙিন আভা */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background:
+      radial-gradient(40rem 28rem at -10% -10%, rgb(52 211 153 / 0.2), transparent 70%),
+      radial-gradient(36rem 26rem at 110% -5%, rgb(251 191 36 / 0.18), transparent 70%),
+      radial-gradient(32rem 26rem at 105% 105%, rgb(244 114 182 / 0.1), transparent 70%),
+      radial-gradient(34rem 26rem at -5% 105%, rgb(56 189 248 / 0.1), transparent 70%);
+  }
+
+  ::selection {
+    background-color: var(--color-emerald-200);
+    color: var(--color-emerald-950);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

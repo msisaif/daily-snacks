@@ -11,8 +11,13 @@ export default async function SettingsPage() {
   const settings = await getSettings();
 
   return (
-    <div className="mx-auto max-w-md">
-      <PageHeader title="সেটিংস" />
+    <div className="stagger space-y-6">
+      <PageHeader
+        title="সেটিংস"
+        description="জনপ্রতি বাজেট আর নতুন মেনুর ডিফল্ট কাটঅফ।"
+        icon="sliders"
+        tone="violet"
+      />
       <section className={cardClass}>
         <SettingsForm
           budgetPerPerson={settings.budgetPerPerson}

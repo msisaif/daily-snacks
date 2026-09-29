@@ -10,8 +10,14 @@ export default async function NewUserPage() {
   await requireAdmin();
 
   return (
-    <div className="mx-auto max-w-md">
-      <PageHeader title="নতুন ইউজার" backHref="/admin/users" />
+    <div className="stagger space-y-6">
+      <PageHeader
+        title="নতুন ইউজার"
+        description="সাইনআপ পেজ নেই; অ্যাকাউন্ট এখান থেকেই খোলা হয়।"
+        icon="user-plus"
+        tone="sky"
+        backHref="/admin/users"
+      />
       <section className={cardClass}>
         <CreateUserForm action={createUser} />
       </section>

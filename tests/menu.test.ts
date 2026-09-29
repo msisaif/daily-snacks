@@ -135,7 +135,7 @@ describe("validateMenuItems", () => {
 
   test("needs at least one item from each group", () => {
     const result = validateMenuItems([snack(1, "healthy"), snack(2, "healthy")], [1], 30);
-    assert.deepEqual(result, { error: "অন্তত একটা হেলদি আর একটা আনহেলদি আইটেম লাগবে" });
+    assert.deepEqual(result, { error: "দুই গ্রুপ থেকেই অন্তত একটা করে আইটেম লাগবে" });
   });
 
   test("a group with two items needs exactly one default", () => {

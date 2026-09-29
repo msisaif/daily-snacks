@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { cardClass, PageHeader } from "@/components/ui";
+import { Callout, cardClass, PageHeader } from "@/components/ui";
 import { requireAdmin } from "@/lib/auth";
 import type { Category } from "@/lib/constants";
 import { getDb } from "@/lib/db";
@@ -27,8 +27,8 @@ export default async function EditSnackPage({ params }: PageProps<"/admin/snacks
   const { budgetPerPerson } = await getSettings();
 
   return (
-    <div className="mx-auto max-w-md">
-      <PageHeader title={String(row.name)} backHref="/admin/snacks" />
+    <div className="stagger space-y-6">
+      <PageHeader title={String(row.name)} icon="cookie" tone="orange" backHref="/admin/snacks" />
       <section className={cardClass}>
         <SnackForm
           action={updateSnack.bind(null, snackId)}
@@ -44,9 +44,9 @@ export default async function EditSnackPage({ params }: PageProps<"/admin/snacks
           }}
         />
       </section>
-      <p className="mt-3 text-xs text-slate-500">
+      <Callout>
         দাম বা গ্রুপ বদলালে আগে খোলা মেনুতে প্রভাব পড়বে না, কারণ মেনু খোলার সময়ের দাম সেভ করা থাকে।
-      </p>
+      </Callout>
     </div>
   );
 }

@@ -29,7 +29,9 @@ export function LoginForm() {
           className={inputClass}
         />
       </Field>
-      <SubmitButton pending={pending}>লগইন</SubmitButton>
+      <SubmitButton pending={pending} className="w-full">
+        লগইন
+      </SubmitButton>
     </form>
   );
 }

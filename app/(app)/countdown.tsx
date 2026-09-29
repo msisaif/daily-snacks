@@ -2,7 +2,10 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { Icon } from "@/components/icons";
 import { formatDuration } from "@/lib/format";
+
+const URGENT_MS = 15 * 60 * 1000;
 
 type Props = {
   cutoffAt: string;
@@ -32,17 +35,24 @@ export function Countdown({ cutoffAt, cutoffLabel }: Props) {
 
   return (
     <div className="flex flex-wrap items-center gap-2 text-sm">
-      <span className="text-slate-500">
+      <span className="inline-flex items-center gap-1.5 text-slate-500">
+        <Icon name="clock" className="size-4" />
         কাটঅফ <span className="font-medium text-slate-700">{cutoffLabel}</span>
       </span>
       {remaining !== null &&
         (remaining > 0 ? (
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 font-medium text-amber-800 ring-1 ring-inset ring-amber-600/20">
-            <span className="size-1.5 animate-pulse rounded-full bg-amber-500" />
+          <span
+            className={`inline-flex animate-pop items-center gap-2 rounded-full px-3 py-1 font-semibold tabular-nums ring-1 ring-inset ${
+              remaining < URGENT_MS
+                ? "bg-rose-50 text-rose-700 ring-rose-600/20"
+                : "bg-amber-50 text-amber-800 ring-amber-600/20"
+            }`}
+          >
+            <span className="size-2 animate-pulse rounded-full bg-current" />
             বাকি {formatDuration(remaining)}
           </span>
         ) : (
-          <span className="rounded-full bg-red-50 px-2.5 py-1 font-medium text-red-700 ring-1 ring-inset ring-red-600/20">
+          <span className="rounded-full bg-rose-50 px-3 py-1 font-semibold text-rose-700 ring-1 ring-rose-600/20 ring-inset">
             সময় শেষ
           </span>
         ))}

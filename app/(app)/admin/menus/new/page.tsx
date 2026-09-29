@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { cardClass, PageHeader } from "@/components/ui";
+import { Icon } from "@/components/icons";
+import { buttonClass, cardClass, EmptyState, MenuStatusBadge, PageHeader } from "@/components/ui";
 import { requireAdmin } from "@/lib/auth";
 import { listSnacksForMenuForm } from "@/lib/menu";
 import { getSettings } from "@/lib/settings";
@@ -16,15 +17,25 @@ export default async function NewMenuPage() {
   const settings = await getSettings();
 
   return (
-    <div className="mx-auto max-w-xl">
-      <PageHeader title="নতুন মেনু (খসড়া)" backHref="/admin/menus" />
+    <div className="stagger space-y-6">
+      <PageHeader
+        title="নতুন মেনু"
+        description="আগে খসড়া হিসেবে সেভ হবে, তারপর মেনু খুলবেন।"
+        icon="clipboard"
+        badge={<MenuStatusBadge status="draft" />}
+        backHref="/admin/menus"
+      />
       {snacks.length < 2 ? (
-        <p className={`${cardClass} text-slate-600`}>
-          মেনু বানাতে অন্তত ২টা সক্রিয় আইটেম লাগবে।{" "}
-          <Link href="/admin/snacks/new" className="text-emerald-700 underline">
-            আইটেম যোগ করুন
-          </Link>
-        </p>
+        <EmptyState
+          icon="cookie"
+          title="মেনু বানাতে অন্তত ২টা সক্রিয় আইটেম লাগবে"
+          action={
+            <Link href="/admin/snacks/new" className={buttonClass.primary}>
+              <Icon name="plus" className="size-4" />
+              আইটেম যোগ করুন
+            </Link>
+          }
+        />
       ) : (
         <section className={cardClass}>
           <MenuForm
