@@ -1,18 +1,20 @@
 import Link from "next/link";
+import { ActionButton } from "@/components/action-button";
 import { Icon } from "@/components/icons";
-import { buttonClass, Callout, CategoryIcon, EmptyState, MenuStatusBadge } from "@/components/ui";
+import { buttonClass, Callout, CategoryIcon, EmptyState, IconTile, MenuStatusBadge } from "@/components/ui";
 import { requireUser, type CurrentUser } from "@/lib/auth";
 import { CATEGORY_LABELS } from "@/lib/constants";
 import { formatDate, formatDateTime, formatTaka } from "@/lib/format";
 import {
   effectiveChoice,
   getHomeMenus,
+  getLeave,
   getMenuOptions,
   getUserSelection,
   type Menu,
 } from "@/lib/menu";
 import { todayInDhaka } from "@/lib/time";
-import { updateChoice } from "./actions";
+import { cancelLeave, takeLeave, updateChoice } from "./actions";
 import { Countdown } from "./countdown";
 import { MenuPicker } from "./menu-picker";
 
@@ -53,10 +55,12 @@ export default async function HomePage() {
 async function MenuSection({ menu, user }: { menu: Menu; user: CurrentUser }) {
   const options = await getMenuOptions(menu.id);
   const selection = await getUserSelection(menu.id, user.id);
-  const choice = effectiveChoice(menu.status, selection, options, user.defaultCategory);
+  const leave = await getLeave(user.id, menu.menuDate);
+  const choice = leave ? null : effectiveChoice(menu.status, selection, options, user.defaultCategory);
 
   const isToday = menu.menuDate === todayInDhaka();
-  const canChange = menu.status === "open";
+  const isOpen = menu.status === "open";
+  const canChange = isOpen && !leave;
   const hasOwnChoice = selection !== null && !selection.isDefault;
 
   return (
@@ -71,12 +75,28 @@ async function MenuSection({ menu, user }: { menu: Menu; user: CurrentUser }) {
             <MenuStatusBadge status={menu.status} />
           </div>
         </div>
-        {canChange && menu.cutoffAt && (
+        {isOpen && menu.cutoffAt && (
           <Countdown cutoffAt={menu.cutoffAt} cutoffLabel={formatDateTime(menu.cutoffAt)} />
         )}
       </div>
 
-      {choice ? (
+      {leave ? (
+        <div className="flex flex-wrap items-center gap-4 rounded-3xl border border-amber-200/80 bg-amber-50/90 p-6 text-amber-900">
+          <IconTile icon="calendar" tone="amber" />
+          <div className="min-w-0 flex-1">
+            <p className="font-display text-xl font-bold">এই দিন আপনি ছুটিতে</p>
+            <p className="mt-1 text-sm">
+              কোনো নাস্তা বরাদ্দ হবে না।
+              {leave.source === "admin" && leave.createdByName && ` ছুটি দিয়েছেন: ${leave.createdByName}।`}
+            </p>
+          </div>
+          {isOpen && (
+            <ActionButton action={cancelLeave.bind(null, menu.menuDate)} icon="undo">
+              ছুটি বাতিল করুন
+            </ActionButton>
+          )}
+        </div>
+      ) : choice ? (
         <div
           className={`relative isolate overflow-hidden rounded-3xl bg-linear-to-br p-6 text-white shadow-xl sm:p-8 ${
             choice.option.category === "healthy"
@@ -131,7 +151,9 @@ async function MenuSection({ menu, user }: { menu: Menu; user: CurrentUser }) {
         <Icon name={canChange ? "info" : "lock"} className="mt-0.5 size-4 shrink-0" />
         {canChange
           ? `কার্ডে ট্যাপ করে বাছাই করুন। কিছু না বাছলে আপনার ডিফল্ট গ্রুপের (${CATEGORY_LABELS[user.defaultCategory]}) ডিফল্ট আইটেম পাবেন।`
-          : "মেনু বন্ধ হয়ে গেছে, এখন আর বদলানো যাবে না।"}
+          : isOpen
+            ? "ছুটি বাতিল করলে আবার বাছাই করতে পারবেন।"
+            : "মেনু বন্ধ হয়ে গেছে, এখন আর বদলানো যাবে না।"}
       </p>
 
       <MenuPicker
@@ -141,6 +163,18 @@ async function MenuSection({ menu, user }: { menu: Menu; user: CurrentUser }) {
         hasOwnChoice={hasOwnChoice}
         canChange={canChange}
       />
+
+      {canChange && (
+        <div className="flex justify-center">
+          <ActionButton
+            action={takeLeave.bind(null, menu.menuDate)}
+            icon="calendar"
+            confirmMessage="এই দিন ছুটিতে থাকবেন? আপনার বাছাই মুছে যাবে, ডিফল্টও পাবেন না।"
+          >
+            এই দিন আমি ছুটিতে
+          </ActionButton>
+        </div>
+      )}
 
       <Link
         href="/summary"

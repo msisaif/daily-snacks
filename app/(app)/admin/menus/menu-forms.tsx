@@ -1,11 +1,13 @@
 "use client";
 
-import { useActionState } from "react";
-import { Field, FormMessage, inputClass, SubmitButton } from "@/components/form";
+import { useActionState, useOptimistic, useState, useTransition, type ReactNode } from "react";
+import { ActionButton } from "@/components/action-button";
+import { Field, FormMessage, inputClass, Spinner, SubmitButton } from "@/components/form";
 import { Icon } from "@/components/icons";
-import { Callout, CATEGORY_STYLES, IconTile } from "@/components/ui";
+import { SnackDialog, SnackField, type SnackPickerItem } from "@/components/snack-picker";
+import { Avatar, Callout, CATEGORY_STYLES, IconTile } from "@/components/ui";
 import { CATEGORIES, CATEGORY_LABELS, type Category } from "@/lib/constants";
-import { formatTaka } from "@/lib/format";
+import { formatNumber, formatTaka } from "@/lib/format";
 import type { FormState } from "@/lib/form";
 
 type Action = (prev: FormState, formData: FormData) => Promise<FormState>;
@@ -190,64 +192,381 @@ export function ReopenForm({ action }: { action: Action }) {
   );
 }
 
-type MenuItemOption = { snackItemId: number; name: string; category: Category };
+const NO_SNACK_TO_ADD = "মেনুতে বসানোর মতো আর কোনো সক্রিয় আইটেম নেই (বাজেটের মধ্যে)।";
 
-function ItemSelect({ options, defaultValue }: { options: MenuItemOption[]; defaultValue?: string }) {
-  return (
-    <Field label="আইটেম">
-      <select name="snackItemId" required defaultValue={defaultValue ?? ""} className={inputClass}>
-        <option value="" disabled>
-          আইটেম বাছাই করুন
-        </option>
-        {CATEGORIES.map((category) => (
-          <optgroup key={category} label={CATEGORY_LABELS[category]}>
-            {options
-              .filter((option) => option.category === category)
-              .map((option) => (
-                <option key={option.snackItemId} value={option.snackItemId}>
-                  {option.name}
-                </option>
-              ))}
-          </optgroup>
-        ))}
-      </select>
-    </Field>
-  );
+// modal-এ আইটেমে ক্লিক করলেই সেভ হয়; চলার সময় spinner, এরর হলে কার্ডে দেখায়
+function useInstantAction(action: (snackItemId: number) => Promise<FormState>) {
+  const [open, setOpen] = useState(false);
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string>();
+
+  function run(choice: string) {
+    setOpen(false);
+    setError(undefined);
+    startTransition(async () => {
+      const result = await action(Number(choice));
+      if (result.error) setError(result.error);
+    });
+  }
+
+  return { open, setOpen, pending, error, run };
 }
 
-export function AssignForm({
-  action,
-  users,
-  options,
+// আইটেম কার্ডের নিচের অংশ: কতজন পাচ্ছে, আর বদলানো / সরানো
+export function MenuItemActions({
+  itemName,
+  takenBy,
+  chosenBy,
+  canRemove,
+  candidates,
+  replaceAction,
+  removeAction,
 }: {
-  action: Action;
-  users: { id: number; label: string }[];
-  options: MenuItemOption[];
+  itemName: string;
+  takenBy: number;
+  chosenBy: number; // নিজে বেছেছে বা বরাদ্দ পেয়েছে; থাকলে বদলানো বা সরানো যায় না
+  canRemove: boolean;
+  candidates: SnackPickerItem[]; // একই গ্রুপের
+  replaceAction: (snackItemId: number) => Promise<FormState>;
+  removeAction: Action;
 }) {
-  const [state, formAction, pending] = useActionState(action, {});
+  const replace = useInstantAction(replaceAction);
+  const people = takenBy > 0 ? ` যে ${formatNumber(takenBy)} জন ডিফল্ট হিসেবে এটা পাচ্ছে, তারা নতুনটা পাবে।` : "";
+
+  if (chosenBy > 0) {
+    return (
+      <div className="mt-3 flex items-center justify-between gap-2 border-t border-slate-200/70 pt-3">
+        <span className="text-xs text-slate-500">{formatNumber(takenBy)} জন পাচ্ছে</span>
+        <span
+          title="কেউ নিজে বেছেছে বা বরাদ্দ পেয়েছে, তাই বদলানো বা সরানো যাবে না"
+          className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-500"
+        >
+          <Icon name="lock" className="size-3.5" />
+          {formatNumber(chosenBy)} জন বেছে নিয়েছে
+        </span>
+      </div>
+    );
+  }
 
   return (
-    <form action={formAction} className="space-y-4">
-      <FormMessage error={state.error} success={state.success} />
-      <Field label="এমপ্লয়ি">
-        <select name="userId" required defaultValue={state.values?.userId ?? ""} className={inputClass}>
-          <option value="" disabled>
-            এমপ্লয়ি বাছাই করুন
-          </option>
-          {users.map((user) => (
-            <option key={user.id} value={user.id}>
-              {user.label}
-            </option>
-          ))}
-        </select>
-      </Field>
-      <ItemSelect options={options} defaultValue={state.values?.snackItemId} />
-      <SubmitButton pending={pending}>সেভ করুন</SubmitButton>
-    </form>
+    <div className="mt-3 space-y-2 border-t border-slate-200/70 pt-3">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs text-slate-500">
+          {takenBy > 0 ? `${formatNumber(takenBy)} জন পাচ্ছে` : "কেউ নেয়নি"}
+        </span>
+        <div className="flex items-start gap-1">
+          <button
+            type="button"
+            onClick={() => replace.setOpen(true)}
+            disabled={replace.pending || candidates.length === 0}
+            title={candidates.length === 0 ? NO_SNACK_TO_ADD : undefined}
+            className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition enabled:hover:bg-slate-100 enabled:hover:text-slate-900 disabled:opacity-50"
+          >
+            {replace.pending ? <Spinner /> : <Icon name="arrow-left-right" className="size-4" />}
+            {replace.pending ? "বদলানো হচ্ছে…" : "বদলান"}
+          </button>
+          {canRemove && !replace.pending && (
+            <ActionButton
+              action={removeAction}
+              variant="subtle"
+              icon="trash"
+              confirmMessage="এই আইটেম মেনু থেকে সরাবেন?"
+            >
+              সরান
+            </ActionButton>
+          )}
+        </div>
+      </div>
+      {replace.error && <p className="text-xs font-medium text-rose-600">{replace.error}</p>}
+      <SnackDialog
+        open={replace.open}
+        onClose={() => replace.setOpen(false)}
+        items={candidates}
+        onSelect={replace.run}
+        title="কোন আইটেম দিয়ে বদলাবেন?"
+        subtitle={`"${itemName}"-এর বদলে, একই গ্রুপ থেকে।${people}`}
+      />
+    </div>
   );
 }
 
-export function GuestForm({ action, options }: { action: Action; options: MenuItemOption[] }) {
+// নতুন আইটেম ডিফল্ট হয় না
+export function AddMenuItemCard({
+  candidates,
+  action,
+}: {
+  candidates: SnackPickerItem[];
+  action: (snackItemId: number) => Promise<FormState>;
+}) {
+  const add = useInstantAction(action);
+  const empty = candidates.length === 0;
+
+  return (
+    <div className="flex h-full flex-col gap-2">
+      <button
+        type="button"
+        onClick={() => add.setOpen(true)}
+        disabled={add.pending || empty}
+        className="group flex min-h-32 flex-1 flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50/50 p-4 text-center text-slate-500 transition enabled:hover:border-emerald-400 enabled:hover:bg-emerald-50/50 enabled:hover:text-emerald-700 disabled:cursor-not-allowed"
+      >
+        <span className="flex size-10 items-center justify-center rounded-full bg-white shadow-sm ring-1 ring-slate-200 transition group-enabled:group-hover:scale-110">
+          {add.pending ? <Spinner /> : <Icon name="plus" className="size-5" />}
+        </span>
+        <span className="text-sm font-semibold">{add.pending ? "যোগ হচ্ছে…" : "আরেকটা আইটেম যোগ করুন"}</span>
+        {empty && <span className="text-xs">{NO_SNACK_TO_ADD}</span>}
+      </button>
+      {add.error && <p className="text-xs font-medium text-rose-600">{add.error}</p>}
+      <SnackDialog
+        open={add.open}
+        onClose={() => add.setOpen(false)}
+        items={candidates}
+        onSelect={add.run}
+        title="মেনুতে কোন আইটেম যোগ করবেন?"
+        subtitle="নতুন আইটেম ডিফল্ট হবে না। শুধু সক্রিয় আর বাজেটের মধ্যের আইটেম দেখানো হচ্ছে।"
+      />
+    </div>
+  );
+}
+
+export type EmployeeRow = {
+  id: number;
+  name: string;
+  employeeId: string;
+  choice: string; // "default" বা আইটেমের id
+  choiceNote: string | null; // যেমন "নিজে বেছেছে", "বরাদ্দ: …"
+  defaultItemName: string; // তার গ্রুপের ডিফল্ট আইটেম
+  leaveNote: string | null; // ছুটিতে থাকলে কে দিল, নইলে null
+};
+
+// নাম বা আইডি দিয়ে খোঁজা যায় এমন তালিকা; প্রতিটা সারি কেমন হবে সেটা বাইরে থেকে আসে
+function EmployeeList({
+  employees,
+  twoColumns = false,
+  children,
+}: {
+  employees: EmployeeRow[];
+  twoColumns?: boolean;
+  children: (employee: EmployeeRow) => ReactNode;
+}) {
+  const [query, setQuery] = useState("");
+  const search = query.trim().toLowerCase();
+  const shown = employees.filter(
+    (employee) =>
+      search === "" ||
+      employee.name.toLowerCase().includes(search) ||
+      employee.employeeId.toLowerCase().includes(search),
+  );
+
+  return (
+    <div className="space-y-3">
+      <div className="relative sm:max-w-sm">
+        <Icon
+          name="search"
+          className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-slate-400"
+        />
+        <input
+          type="search"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="নাম বা আইডি দিয়ে খুঁজুন"
+          aria-label="এমপ্লয়ি খুঁজুন"
+          className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pr-3.5 pl-10 text-base text-slate-900 shadow-xs outline-none transition placeholder:text-slate-400 hover:border-slate-300 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/15"
+        />
+      </div>
+      {shown.length === 0 ? (
+        <p className="rounded-2xl border border-dashed border-slate-300 bg-slate-50/50 p-4 text-center text-sm text-slate-500">
+          {employees.length === 0 ? "কেউ নেই" : "এই নামে বা আইডিতে কাউকে পাওয়া যায়নি"}
+        </p>
+      ) : (
+        <ul className={`grid gap-2.5 ${twoColumns ? "lg:grid-cols-2" : ""}`}>
+          {shown.map((employee) => (
+            <li key={employee.id}>{children(employee)}</li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function EmployeeCard({
+  employee,
+  note,
+  highlight = false,
+  error,
+  children,
+}: {
+  employee: EmployeeRow;
+  note: string | null;
+  highlight?: boolean;
+  error?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      className={`flex flex-wrap items-center gap-x-3 gap-y-2 rounded-2xl border px-3.5 py-3 transition ${
+        highlight ? "border-amber-200 bg-amber-50/70" : "border-slate-200/70 bg-white"
+      }`}
+    >
+      <Avatar name={employee.name} className="size-9 text-sm" />
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-medium text-slate-900">{employee.name}</p>
+        <p className="truncate text-xs text-slate-500">
+          {employee.employeeId}
+          {note && ` · ${note}`}
+        </p>
+      </div>
+      {children}
+      {error && <p className="w-full text-xs font-medium text-rose-600">{error}</p>}
+    </div>
+  );
+}
+
+function Switch({
+  checked,
+  disabled,
+  label,
+  onToggle,
+}: {
+  checked: boolean;
+  disabled: boolean;
+  label: string;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      disabled={disabled}
+      onClick={onToggle}
+      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full outline-none transition focus-visible:ring-2 focus-visible:ring-amber-500/50 focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60 ${
+        checked ? "bg-amber-500" : "bg-slate-300"
+      }`}
+    >
+      <span
+        className={`inline-block size-5 rounded-full bg-white shadow-sm transition ${
+          checked ? "translate-x-5.5" : "translate-x-0.5"
+        }`}
+      />
+    </button>
+  );
+}
+
+// বদলালে সাথে সাথে সেভ হয়; সেভ না হওয়া পর্যন্ত নতুন অবস্থাটাই দেখায়, এরর হলে আগেরটায় ফেরে
+function LeaveRow({
+  employee,
+  action,
+}: {
+  employee: EmployeeRow;
+  action: (userId: number, onLeave: boolean) => Promise<FormState>;
+}) {
+  const isOnLeave = employee.leaveNote !== null;
+  const [shownOnLeave, setShownOnLeave] = useOptimistic(isOnLeave);
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string>();
+
+  function toggle() {
+    setError(undefined);
+    startTransition(async () => {
+      setShownOnLeave(!isOnLeave);
+      const result = await action(employee.id, !isOnLeave);
+      if (result.error) setError(result.error);
+    });
+  }
+
+  return (
+    <EmployeeCard
+      employee={employee}
+      note={shownOnLeave ? (employee.leaveNote ?? "ছুটিতে") : null}
+      highlight={shownOnLeave}
+      error={error}
+    >
+      <Switch checked={shownOnLeave} disabled={pending} label={`${employee.name} ছুটিতে`} onToggle={toggle} />
+    </EmployeeCard>
+  );
+}
+
+export function LeaveList({
+  employees,
+  action,
+}: {
+  employees: EmployeeRow[];
+  action: (userId: number, onLeave: boolean) => Promise<FormState>;
+}) {
+  return (
+    <EmployeeList employees={employees} twoColumns>
+      {(employee) => <LeaveRow employee={employee} action={action} />}
+    </EmployeeList>
+  );
+}
+
+function AssignRow({
+  employee,
+  options,
+  action,
+}: {
+  employee: EmployeeRow;
+  options: SnackPickerItem[];
+  action: (userId: number, choice: string) => Promise<FormState>;
+}) {
+  const [shownChoice, setShownChoice] = useOptimistic(employee.choice);
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string>();
+  const isOnLeave = employee.leaveNote !== null;
+
+  function change(choice: string) {
+    if (choice === employee.choice) return;
+    setError(undefined);
+    startTransition(async () => {
+      setShownChoice(choice);
+      const result = await action(employee.id, choice);
+      if (result.error) setError(result.error);
+    });
+  }
+
+  return (
+    <EmployeeCard employee={employee} note={isOnLeave ? null : employee.choiceNote} error={error}>
+      {isOnLeave ? (
+        <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800">ছুটিতে</span>
+      ) : (
+        <div className="flex w-full items-center gap-2 sm:w-80">
+          {pending && <Spinner />}
+          <div className="min-w-0 flex-1">
+            <SnackField
+              items={options}
+              value={shownChoice}
+              onChange={change}
+              highlight={shownChoice !== "default"}
+              disabled={pending}
+              title="কোন আইটেম পাবে?"
+              subtitle={`${employee.name}-এর জন্য। ক্লিক করলেই সেভ হবে।`}
+              defaultChoice={{ note: `ডিফল্ট: ${employee.defaultItemName}` }}
+            />
+          </div>
+        </div>
+      )}
+    </EmployeeCard>
+  );
+}
+
+export function AssignList({
+  employees,
+  options,
+  action,
+}: {
+  employees: EmployeeRow[];
+  options: SnackPickerItem[];
+  action: (userId: number, choice: string) => Promise<FormState>;
+}) {
+  return (
+    <EmployeeList employees={employees}>
+      {(employee) => <AssignRow employee={employee} options={options} action={action} />}
+    </EmployeeList>
+  );
+}
+
+export function GuestForm({ action, options }: { action: Action; options: SnackPickerItem[] }) {
   const [state, formAction, pending] = useActionState(action, {});
 
   return (
@@ -262,7 +581,15 @@ export function GuestForm({ action, options }: { action: Action; options: MenuIt
           className={inputClass}
         />
       </Field>
-      <ItemSelect options={options} defaultValue={state.values?.snackItemId} />
+      <div>
+        <span className="mb-1.5 block text-sm font-medium text-slate-700">আইটেম</span>
+        <SnackField
+          name="snackItemId"
+          items={options}
+          title="গেস্ট কোন আইটেম পাবে?"
+          subtitle="খরচ মোট হিসাবে যোগ হবে।"
+        />
+      </div>
       <SubmitButton pending={pending}>গেস্ট যোগ করুন</SubmitButton>
     </form>
   );

@@ -48,6 +48,15 @@ export function isPastCutoff(cutoffAt: string, now: Date): boolean {
   return now.getTime() >= new Date(cutoffAt).getTime();
 }
 
+// মেনুতে নতুন বসানো আইটেম সক্রিয় আর বাজেটের মধ্যে হতে হবে
+export function snackNotAllowed(snack: SnackForMenu, budget: number): string | null {
+  if (!snack.isActive) return `"${snack.name}" নিষ্ক্রিয়, মেনুতে রাখা যাবে না`;
+  if (snack.price > budget) {
+    return `"${snack.name}"-এর দাম (${formatTaka(snack.price)}) বাজেটের (${formatTaka(budget)}) বেশি`;
+  }
+  return null;
+}
+
 // ২–৩টা আইটেম, দুই গ্রুপই আছে, দাম ≤ বাজেট, প্রতি গ্রুপে ঠিক একটা ডিফল্ট
 export function validateMenuItems(
   items: SnackForMenu[],
@@ -59,14 +68,8 @@ export function validateMenuItems(
   }
 
   for (const item of items) {
-    if (!item.isActive) {
-      return { error: `"${item.name}" নিষ্ক্রিয়, মেনুতে রাখা যাবে না` };
-    }
-    if (item.price > budget) {
-      return {
-        error: `"${item.name}"-এর দাম (${formatTaka(item.price)}) বাজেটের (${formatTaka(budget)}) বেশি`,
-      };
-    }
+    const error = snackNotAllowed(item, budget);
+    if (error) return { error };
   }
 
   const hasBothCategories = CATEGORIES.every((category) =>
@@ -311,7 +314,7 @@ export function guestLabel(guestNo: number, name: string | null): string {
   return name ? `${label} (${name})` : label;
 }
 
-// খোলা মেনু: প্রত্যেক সক্রিয় ইউজার, বাছাই না থাকলে তার গ্রুপের ডিফল্ট (সেভ হয় না)
+// খোলা মেনু: ছুটিতে নেই এমন প্রত্যেক সক্রিয় ইউজার, বাছাই না থাকলে তার গ্রুপের ডিফল্ট (সেভ হয় না)
 // বন্ধ/ডেলিভারড মেনু: selections-এ যা সেভ আছে (ডিফল্টসহ), পরে কেউ নিষ্ক্রিয় হলেও হিসাব বদলায় না
 // গেস্টরা সবার শেষে
 export async function getPeopleChoices(menu: Menu): Promise<PersonChoice[]> {
@@ -331,8 +334,9 @@ export async function getPeopleChoices(menu: Menu): Promise<PersonChoice[]> {
                 LEFT JOIN menu_options d
                   ON d.menu_id = ? AND d.category = u.default_category AND d.is_default = 1
                 WHERE u.is_active = 1
+                  AND NOT EXISTS (SELECT 1 FROM leaves l WHERE l.user_id = u.id AND l.leave_date = ?)
                 ORDER BY u.name COLLATE NOCASE`,
-          args: [menu.id, menu.id],
+          args: [menu.id, menu.id, menu.menuDate],
         })
       : await db.execute({
           sql: `SELECT u.id AS user_id, u.name, u.employee_id, s.snack_item_id, s.is_default,
@@ -507,16 +511,17 @@ function closeStatements(menuId: number, now: Date, reason: "cutoff" | "manual")
               AND EXISTS (SELECT 1 FROM daily_menus WHERE id = ? AND status = 'closed')`,
       args: [menuId, menuId],
     },
-    // যারা কিছু বাছেনি, তারা নিজের ডিফল্ট গ্রুপের ডিফল্ট আইটেম পাবে
+    // যারা কিছু বাছেনি আর ছুটিতে নেই, তারা নিজের ডিফল্ট গ্রুপের ডিফল্ট আইটেম পাবে
     {
       sql: `INSERT INTO selections (menu_id, user_id, snack_item_id, is_default, updated_at)
             SELECT mo.menu_id, u.id, mo.snack_item_id, 1, ?
             FROM users u
             JOIN menu_options mo
               ON mo.menu_id = ? AND mo.category = u.default_category AND mo.is_default = 1
+            JOIN daily_menus m ON m.id = mo.menu_id AND m.status = 'closed'
             WHERE u.is_active = 1
               AND NOT EXISTS (SELECT 1 FROM selections s WHERE s.menu_id = mo.menu_id AND s.user_id = u.id)
-              AND EXISTS (SELECT 1 FROM daily_menus m WHERE m.id = mo.menu_id AND m.status = 'closed')`,
+              AND NOT EXISTS (SELECT 1 FROM leaves l WHERE l.user_id = u.id AND l.leave_date = m.menu_date)`,
       args: [nowIso, menuId],
     },
   ];
@@ -661,7 +666,7 @@ export async function chooseSnack(
   const menu = await getMenu(menuId, now);
   if (!menu || menu.status !== "open") return MENU_NOT_OPEN;
 
-  // WHERE-এর শর্তগুলো লেখার মুহূর্তেই আবার যাচাই করে: মেনু খোলা, কাটঅফ বাকি, আইটেম মেনুতে আছে
+  // WHERE-এর শর্তগুলো লেখার মুহূর্তেই আবার যাচাই করে: মেনু খোলা, কাটঅফ বাকি, আইটেম মেনুতে আছে, ছুটিতে নেই
   const nowIso = now.toISOString();
   const db = await getDb();
   const result = await db.execute({
@@ -671,14 +676,15 @@ export async function chooseSnack(
           JOIN daily_menus m ON m.id = mo.menu_id
           WHERE mo.menu_id = ? AND mo.snack_item_id = ?
             AND m.status = 'open' AND m.cutoff_at > ?
+            AND NOT EXISTS (SELECT 1 FROM leaves l WHERE l.user_id = ? AND l.leave_date = m.menu_date)
           ON CONFLICT (menu_id, user_id) DO UPDATE SET
             snack_item_id = excluded.snack_item_id,
             is_default = 0,
             assigned_by = NULL,
             updated_at = excluded.updated_at`,
-    args: [userId, nowIso, menuId, snackItemId, nowIso],
+    args: [userId, nowIso, menuId, snackItemId, nowIso, userId],
   });
-  if (result.rowsAffected === 0) return "এই আইটেমটা বাছাই করা যায়নি";
+  if (result.rowsAffected === 0) return "এই আইটেমটা বাছাই করা যায়নি (ছুটিতে থাকলে আগে ছুটি বাতিল করুন)";
   return null;
 }
 
@@ -724,6 +730,7 @@ export async function assignSnack(
           JOIN users u ON u.id = ? AND u.is_active = 1
           WHERE mo.menu_id = ? AND mo.snack_item_id = ?
             AND m.status IN ('open', 'closed')
+            AND NOT EXISTS (SELECT 1 FROM leaves l WHERE l.user_id = u.id AND l.leave_date = m.menu_date)
           ON CONFLICT (menu_id, user_id) DO UPDATE SET
             snack_item_id = excluded.snack_item_id,
             is_default = 0,
@@ -731,7 +738,45 @@ export async function assignSnack(
             updated_at = excluded.updated_at`,
     args: [adminId, now.toISOString(), userId, menuId, snackItemId],
   });
-  if (result.rowsAffected === 0) return "সেভ করা যায়নি। ইউজার সক্রিয় কিনা আর আইটেম মেনুতে আছে কিনা দেখুন।";
+  if (result.rowsAffected === 0) {
+    return "সেভ করা যায়নি। ইউজার সক্রিয় কিনা, ছুটিতে আছে কিনা আর আইটেম মেনুতে আছে কিনা দেখুন।";
+  }
+  return null;
+}
+
+// অ্যাডমিন কাউকে ডিফল্টে ফেরালে: খোলা মেনুতে সারি মুছে যায় (ডিফল্ট এমনিতেই হিসাব হয়),
+// বন্ধ মেনুতে তার গ্রুপের ডিফল্ট আইটেম বসে, বন্ধের সময়ের অটো ডিফল্টের মতো
+export async function assignDefault(menuId: number, userId: number, now = new Date()): Promise<string | null> {
+  if (!(await isEditableByAdmin(menuId, now))) return MENU_NOT_EDITABLE;
+
+  const db = await getDb();
+  await db.batch(
+    [
+      {
+        sql: `DELETE FROM selections
+              WHERE menu_id = ? AND user_id = ?
+                AND EXISTS (SELECT 1 FROM daily_menus WHERE id = ? AND status = 'open')`,
+        args: [menuId, userId, menuId],
+      },
+      {
+        sql: `INSERT INTO selections (menu_id, user_id, snack_item_id, is_default, updated_at)
+              SELECT m.id, u.id, mo.snack_item_id, 1, ?
+              FROM users u
+              JOIN daily_menus m ON m.id = ? AND m.status = 'closed'
+              JOIN menu_options mo
+                ON mo.menu_id = m.id AND mo.category = u.default_category AND mo.is_default = 1
+              WHERE u.id = ? AND u.is_active = 1
+                AND NOT EXISTS (SELECT 1 FROM leaves l WHERE l.user_id = u.id AND l.leave_date = m.menu_date)
+              ON CONFLICT (menu_id, user_id) DO UPDATE SET
+                snack_item_id = excluded.snack_item_id,
+                is_default = 1,
+                assigned_by = NULL,
+                updated_at = excluded.updated_at`,
+        args: [now.toISOString(), menuId, userId],
+      },
+    ],
+    "write",
+  );
   return null;
 }
 
@@ -771,6 +816,334 @@ export async function removeGuest(menuId: number, guestId: number, now = new Dat
             AND EXISTS (SELECT 1 FROM daily_menus WHERE id = ? AND status IN ('open', 'closed'))`,
     args: [guestId, menuId, menuId],
   });
+  return null;
+}
+
+// ---------- অ্যাডমিন: খোলা বা বন্ধ মেনুর আইটেম যোগ / সরানো / বদল ----------
+// মেনুর নিয়ম (২–৩টা, দুই গ্রুপ, প্রতি গ্রুপে একটা ডিফল্ট) কোনোটাতেই ভাঙে না
+
+async function getSnack(snackItemId: number): Promise<SnackForMenu | null> {
+  const db = await getDb();
+  const result = await db.execute({
+    sql: "SELECT id, name, category, price, is_active FROM snack_items WHERE id = ?",
+    args: [snackItemId],
+  });
+  return result.rows[0] ? toSnackForMenu(result.rows[0]) : null;
+}
+
+// মেনুতে বসানো যায় এমন আইটেম: সক্রিয়, বাজেটের মধ্যে, এই মেনুতে এখনো নেই
+export async function listSnacksToAdd(menuId: number): Promise<MenuOption[]> {
+  const { budgetPerPerson } = await getSettings();
+  const db = await getDb();
+  const result = await db.execute({
+    sql: `SELECT id, name, description, image_url, category, price
+          FROM snack_items
+          WHERE is_active = 1 AND price <= ?
+            AND id NOT IN (SELECT snack_item_id FROM menu_options WHERE menu_id = ?)
+          ORDER BY category, name`,
+    args: [budgetPerPerson, menuId],
+  });
+  return result.rows.map((row) => ({
+    snackItemId: Number(row.id),
+    name: String(row.name),
+    description: row.description === null ? null : String(row.description),
+    imageUrl: row.image_url === null ? null : String(row.image_url),
+    category: row.category as Category,
+    price: Number(row.price),
+    isDefault: false,
+  }));
+}
+
+// নতুন আইটেম ডিফল্ট হয় না; দাম আর গ্রুপ এখনকার snapshot
+export async function addMenuItem(menuId: number, snackItemId: number, now = new Date()): Promise<string | null> {
+  if (!(await isEditableByAdmin(menuId, now))) return MENU_NOT_EDITABLE;
+
+  const options = await getMenuOptions(menuId);
+  if (options.length >= 3) return "মেনুতে সর্বোচ্চ ৩টা আইটেম থাকতে পারে";
+  if (options.some((option) => option.snackItemId === snackItemId)) return "এই আইটেম আগেই মেনুতে আছে";
+
+  const snack = await getSnack(snackItemId);
+  if (!snack) return "আইটেম পাওয়া যায়নি";
+  const error = snackNotAllowed(snack, (await getSettings()).budgetPerPerson);
+  if (error) return error;
+
+  const db = await getDb();
+  const result = await db.execute({
+    sql: `INSERT INTO menu_options (menu_id, snack_item_id, category, price, is_default)
+          SELECT m.id, ?, ?, ?, 0
+          FROM daily_menus m
+          WHERE m.id = ? AND m.status IN ('open', 'closed')
+            AND (SELECT COUNT(*) FROM menu_options WHERE menu_id = m.id) < 3
+            AND NOT EXISTS (SELECT 1 FROM menu_options WHERE menu_id = m.id AND snack_item_id = ?)`,
+    args: [snack.id, snack.category, snack.price, menuId, snack.id],
+  });
+  if (result.rowsAffected === 0) return "আইটেম যোগ করা যায়নি";
+  return null;
+}
+
+const ITEM_CHOSEN = "কেউ এই আইটেম নিজে বেছেছে বা বরাদ্দ পেয়েছে (গেস্টসহ), তাই বদলানো বা সরানো যাবে না";
+
+// কেউ নিজে বেছেছে, অ্যাডমিন বরাদ্দ দিয়েছে বা গেস্টকে দেওয়া হয়েছে; বন্ধের সময়ের অটো ডিফল্ট (is_default = 1) ধরা হয় না
+// args: menuId, snackItemId, menuId, snackItemId
+const ITEM_CHOSEN_SQL = `(EXISTS (SELECT 1 FROM selections WHERE menu_id = ? AND snack_item_id = ? AND is_default = 0)
+                          OR EXISTS (SELECT 1 FROM menu_guests WHERE menu_id = ? AND snack_item_id = ?))`;
+
+// শুধু ডিফল্ট নয় এমন আইটেম, আর কেউ (এমপ্লয়ি বা গেস্ট) না নিলে।
+// ডিফল্ট নয় এমন আইটেম শুধু ৩ আইটেমের মেনুতেই থাকে, তাই সরানোর পরও ২টা থাকে।
+export async function removeMenuItem(menuId: number, snackItemId: number, now = new Date()): Promise<string | null> {
+  if (!(await isEditableByAdmin(menuId, now))) return MENU_NOT_EDITABLE;
+
+  const option = (await getMenuOptions(menuId)).find((item) => item.snackItemId === snackItemId);
+  if (!option) return "আইটেম মেনুতে নেই";
+  if (option.isDefault) return "ডিফল্ট আইটেম সরানো যাবে না, চাইলে বদলাতে পারেন";
+
+  // selections আর গেস্টের FK cascade করে, তাই কেউ নিয়ে থাকলে মোছা আটকাতেই হবে
+  const db = await getDb();
+  const result = await db.execute({
+    sql: `DELETE FROM menu_options
+          WHERE menu_id = ? AND snack_item_id = ? AND is_default = 0
+            AND EXISTS (SELECT 1 FROM daily_menus WHERE id = ? AND status IN ('open', 'closed'))
+            AND NOT EXISTS (SELECT 1 FROM selections WHERE menu_id = ? AND snack_item_id = ?)
+            AND NOT EXISTS (SELECT 1 FROM menu_guests WHERE menu_id = ? AND snack_item_id = ?)`,
+    args: [menuId, snackItemId, menuId, menuId, snackItemId, menuId, snackItemId],
+  });
+  if (result.rowsAffected === 0) return ITEM_CHOSEN;
+  return null;
+}
+
+// শুধু কেউ বেছে না নিলে, একই গ্রুপের আইটেম দিয়ে। যারা ডিফল্ট হিসেবে পাচ্ছিল তারা নতুনটা পাবে,
+// আগেরটা ডিফল্ট হলে নতুনটাও ডিফল্ট
+export async function replaceMenuItem(
+  menuId: number,
+  oldSnackItemId: number,
+  newSnackItemId: number,
+  now = new Date(),
+): Promise<string | null> {
+  if (!(await isEditableByAdmin(menuId, now))) return MENU_NOT_EDITABLE;
+
+  const options = await getMenuOptions(menuId);
+  const old = options.find((option) => option.snackItemId === oldSnackItemId);
+  if (!old) return "আইটেম মেনুতে নেই";
+  if (options.some((option) => option.snackItemId === newSnackItemId)) return "নতুন আইটেম আগেই মেনুতে আছে";
+
+  const snack = await getSnack(newSnackItemId);
+  if (!snack) return "আইটেম পাওয়া যায়নি";
+  if (snack.category !== old.category) {
+    return `একই গ্রুপের (${CATEGORY_LABELS[old.category]}) আইটেম দিয়ে বদলাতে হবে`;
+  }
+  const error = snackNotAllowed(snack, (await getSettings()).budgetPerPerson);
+  if (error) return error;
+
+  const db = await getDb();
+  const chosen = await db.execute({
+    sql: `SELECT ${ITEM_CHOSEN_SQL} AS chosen`,
+    args: [menuId, oldSnackItemId, menuId, oldSnackItemId],
+  });
+  if (Number(chosen.rows[0].chosen) === 1) return ITEM_CHOSEN;
+
+  // batch একটা transaction-এ চলে। নতুনটা মেনুতে না থাকলে (মেনু বন্ধ/ডেলিভারি হয়ে গেলে) পরের ধাপগুলো কিছুই করে না।
+  // interactive transaction নয়, কারণ সেটা pool-এ আলাদা connection খোলাতে পারে, যেখানে foreign_keys চালু নেই।
+  const newExists = "EXISTS (SELECT 1 FROM menu_options WHERE menu_id = ? AND snack_item_id = ?)";
+  const [inserted] = await db.batch(
+    [
+      {
+        sql: `INSERT INTO menu_options (menu_id, snack_item_id, category, price, is_default)
+              SELECT m.id, ?, ?, ?, 0
+              FROM daily_menus m
+              WHERE m.id = ? AND m.status IN ('open', 'closed')
+                AND EXISTS (SELECT 1 FROM menu_options WHERE menu_id = m.id AND snack_item_id = ?)
+                AND NOT EXISTS (SELECT 1 FROM menu_options WHERE menu_id = m.id AND snack_item_id = ?)
+                AND NOT ${ITEM_CHOSEN_SQL}`,
+        args: [
+          snack.id,
+          snack.category,
+          snack.price,
+          menuId,
+          oldSnackItemId,
+          snack.id,
+          menuId,
+          oldSnackItemId,
+          menuId,
+          oldSnackItemId,
+        ],
+      },
+      // বাকি থাকে শুধু বন্ধের সময়ের অটো ডিফল্ট সারি; সেগুলো নতুনটায় যায়
+      {
+        sql: `UPDATE selections SET snack_item_id = ?, updated_at = ?
+              WHERE menu_id = ? AND snack_item_id = ? AND ${newExists}`,
+        args: [snack.id, now.toISOString(), menuId, oldSnackItemId, menuId, snack.id],
+      },
+      // আগে পুরোনোটা মুছি, নইলে "প্রতি গ্রুপে একটা ডিফল্ট" index ভাঙে
+      {
+        sql: `DELETE FROM menu_options WHERE menu_id = ? AND snack_item_id = ? AND ${newExists}`,
+        args: [menuId, oldSnackItemId, menuId, snack.id],
+      },
+      // শুধু ডিফল্ট বসাই, কখনো সরাই না, যাতে কোনো অবস্থায় গ্রুপ ডিফল্ট-ছাড়া না হয়
+      {
+        sql: `UPDATE menu_options SET is_default = 1
+              WHERE menu_id = ? AND snack_item_id = ? AND ? = 1
+                AND NOT EXISTS (SELECT 1 FROM menu_options WHERE menu_id = ? AND snack_item_id = ?)`,
+        args: [menuId, snack.id, old.isDefault ? 1 : 0, menuId, oldSnackItemId],
+      },
+    ],
+    "write",
+  );
+  if (inserted.rowsAffected === 0) return "আইটেম বদলানো যায়নি";
+  return null;
+}
+
+// ---------- ছুটি (তারিখ ধরে, সেদিনের মেনু থাকুক বা না থাকুক) ----------
+// ছুটির দিনে কিছুই বরাদ্দ হয় না, ডিফল্টও না
+
+export type LeaveSource = "self" | "admin" | "api";
+
+export type Leave = {
+  userId: number;
+  name: string;
+  employeeId: string;
+  source: LeaveSource;
+  createdByName: string | null;
+};
+
+const LEAVE_SELECT = `SELECT l.user_id, u.name, u.employee_id, l.source, c.name AS created_by_name
+                      FROM leaves l
+                      JOIN users u ON u.id = l.user_id
+                      LEFT JOIN users c ON c.id = l.created_by`;
+
+function toLeave(row: Row): Leave {
+  return {
+    userId: Number(row.user_id),
+    name: String(row.name),
+    employeeId: String(row.employee_id),
+    source: row.source as LeaveSource,
+    createdByName: row.created_by_name === null ? null : String(row.created_by_name),
+  };
+}
+
+export async function listLeaves(leaveDate: string): Promise<Leave[]> {
+  const db = await getDb();
+  const result = await db.execute({
+    sql: `${LEAVE_SELECT} WHERE l.leave_date = ? ORDER BY u.name COLLATE NOCASE`,
+    args: [leaveDate],
+  });
+  return result.rows.map(toLeave);
+}
+
+export async function getLeave(userId: number, leaveDate: string): Promise<Leave | null> {
+  const db = await getDb();
+  const result = await db.execute({
+    sql: `${LEAVE_SELECT} WHERE l.user_id = ? AND l.leave_date = ?`,
+    args: [userId, leaveDate],
+  });
+  return result.rows[0] ? toLeave(result.rows[0]) : null;
+}
+
+// নিজে: আজ বা পরের তারিখ, আর সেদিনের মেনু (থাকলে) এখনো খোলা বা খসড়া
+// অ্যাডমিন/API: ডেলিভারি না হওয়া পর্যন্ত
+async function leaveChangeError(leaveDate: string, source: LeaveSource, now: Date): Promise<string | null> {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(leaveDate)) return "তারিখ ঠিক নেই";
+
+  const db = await getDb();
+  const found = await db.execute({
+    sql: "SELECT id FROM daily_menus WHERE menu_date = ?",
+    args: [leaveDate],
+  });
+  // getMenu কাটঅফ পার হলে মেনু বন্ধ করে দেয়, তাই স্ট্যাটাস এখনকার
+  const menu = found.rows[0] ? await getMenu(Number(found.rows[0].id), now) : null;
+
+  if (menu?.status === "delivered") return "ডেলিভারি হয়ে গেছে, এই দিনের ছুটি আর বদলানো যাবে না";
+  if (source === "self") {
+    if (leaveDate < todayInDhaka(now)) return "আগের তারিখের ছুটি বদলানো যাবে না";
+    if (menu?.status === "closed") return "মেনু বন্ধ হয়ে গেছে। ছুটি বদলাতে অ্যাডমিনকে বলুন।";
+  }
+  return null;
+}
+
+// উপরের নিয়মটাই SQL-এ, যাতে লেখার মুহূর্তে আবার যাচাই হয়
+function leaveUnlockedSql(leaveDate: string, source: LeaveSource, now: Date): { sql: string; args: string[] } {
+  if (source === "self") {
+    return {
+      sql: `NOT EXISTS (SELECT 1 FROM daily_menus WHERE menu_date = ?
+              AND (status IN ('closed', 'delivered') OR (status = 'open' AND cutoff_at <= ?)))`,
+      args: [leaveDate, now.toISOString()],
+    };
+  }
+  return {
+    sql: "NOT EXISTS (SELECT 1 FROM daily_menus WHERE menu_date = ? AND status = 'delivered')",
+    args: [leaveDate],
+  };
+}
+
+// createdBy: যে দিল তার id (API হলে null)
+export async function addLeave(
+  userId: number,
+  leaveDate: string,
+  source: LeaveSource,
+  createdBy: number | null,
+  now = new Date(),
+): Promise<string | null> {
+  const error = await leaveChangeError(leaveDate, source, now);
+  if (error) return error;
+
+  const unlocked = leaveUnlockedSql(leaveDate, source, now);
+  const db = await getDb();
+  const [inserted] = await db.batch(
+    [
+      {
+        sql: `INSERT INTO leaves (user_id, leave_date, source, created_by)
+              SELECT id, ?, ?, ? FROM users
+              WHERE id = ? AND is_active = 1 AND ${unlocked.sql}
+              ON CONFLICT (user_id, leave_date) DO NOTHING`,
+        args: [leaveDate, source, createdBy, userId, ...unlocked.args],
+      },
+      // আগের বাছাই (নিজের, অ্যাডমিনের বা বন্ধের সময়ের ডিফল্ট) মুছে যায়
+      {
+        sql: `DELETE FROM selections
+              WHERE user_id = ?
+                AND menu_id IN (SELECT id FROM daily_menus WHERE menu_date = ? AND status IN ('open', 'closed'))
+                AND EXISTS (SELECT 1 FROM leaves WHERE user_id = ? AND leave_date = ?)`,
+        args: [userId, leaveDate, userId, leaveDate],
+      },
+    ],
+    "write",
+  );
+  if (inserted.rowsAffected === 0) return "ছুটি সেভ হয়নি। আগে থেকেই ছুটি আছে কিনা বা ইউজার সক্রিয় কিনা দেখুন।";
+  return null;
+}
+
+export async function removeLeave(
+  userId: number,
+  leaveDate: string,
+  source: LeaveSource,
+  now = new Date(),
+): Promise<string | null> {
+  const error = await leaveChangeError(leaveDate, source, now);
+  if (error) return error;
+
+  const unlocked = leaveUnlockedSql(leaveDate, source, now);
+  const db = await getDb();
+  await db.batch(
+    [
+      {
+        sql: `DELETE FROM leaves WHERE user_id = ? AND leave_date = ? AND ${unlocked.sql}`,
+        args: [userId, leaveDate, ...unlocked.args],
+      },
+      // বন্ধ মেনুতে বাকিদের মতো ডিফল্ট বসে; খোলা মেনুতে ডিফল্ট এমনিতেই হিসাব হয়
+      {
+        sql: `INSERT INTO selections (menu_id, user_id, snack_item_id, is_default, updated_at)
+              SELECT m.id, u.id, mo.snack_item_id, 1, ?
+              FROM users u
+              JOIN daily_menus m ON m.menu_date = ? AND m.status = 'closed'
+              JOIN menu_options mo
+                ON mo.menu_id = m.id AND mo.category = u.default_category AND mo.is_default = 1
+              WHERE u.id = ? AND u.is_active = 1
+                AND NOT EXISTS (SELECT 1 FROM leaves l WHERE l.user_id = u.id AND l.leave_date = m.menu_date)
+              ON CONFLICT (menu_id, user_id) DO NOTHING`,
+        args: [now.toISOString(), leaveDate, userId],
+      },
+    ],
+    "write",
+  );
   return null;
 }
 

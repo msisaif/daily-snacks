@@ -106,6 +106,11 @@
     -webkit-tap-highlight-color: transparent;
   }
 
+  /* modal খোলা থাকলে পেছনের পেজ স্ক্রল হয় না */
+  html:has(dialog[open]) {
+    overflow: hidden;
+  }
+
   body {
     background-color: #f7f8f3;
     /* ফোন আড়াআড়ি ধরলে নচ/ক্যামেরার নিচে লেখা যাতে না যায় */

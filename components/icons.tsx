@@ -15,6 +15,14 @@ const ICONS = {
       <path d="M19 12H5" />
     </>
   ),
+  "arrow-left-right": (
+    <>
+      <path d="M8 3 4 7l4 4" />
+      <path d="M4 7h16" />
+      <path d="m16 21 4-4-4-4" />
+      <path d="M20 17H4" />
+    </>
+  ),
   "arrow-right": (
     <>
       <path d="M5 12h14" />
@@ -125,6 +133,12 @@ const ICONS = {
       <path d="M10.9 7.25A3.99 3.99 0 0 0 4 10c0 .73.2 1.41.54 2" />
     </>
   ),
+  search: (
+    <>
+      <circle cx="11" cy="11" r="8" />
+      <path d="m21 21-4.3-4.3" />
+    </>
+  ),
   send: (
     <>
       <path d="m22 2-7 20-4-9-9-4Z" />
@@ -206,6 +220,12 @@ const ICONS = {
       <path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2" />
       <path d="M7 2v20" />
       <path d="M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7" />
+    </>
+  ),
+  x: (
+    <>
+      <path d="M18 6 6 18" />
+      <path d="m6 6 12 12" />
     </>
   ),
   wallet: (

@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import type { ReactNode } from "react";
 import { ActionButton } from "@/components/action-button";
-import { Icon, type IconName } from "@/components/icons";
+import { Icon } from "@/components/icons";
+import { Tabs } from "@/components/tabs";
 import {
   Avatar,
   buttonClass,
@@ -18,14 +20,17 @@ import {
 } from "@/components/ui";
 import { requireAdmin } from "@/lib/auth";
 import { MENU_STATUSES, MENU_STATUS_LABELS, type MenuStatus } from "@/lib/constants";
-import { formatDate, formatDateTime, formatNumber, formatTaka } from "@/lib/format";
+import { formatDate, formatNumber, formatTaka } from "@/lib/format";
 import { getDb } from "@/lib/db";
 import {
   countSelections,
   getMenu,
   getMenuOptions,
   getPeopleChoices,
+  listLeaves,
   listSnacksForMenuForm,
+  listSnacksToAdd,
+  type Leave,
   type MenuOption,
   type PersonChoice,
 } from "@/lib/menu";
@@ -34,17 +39,30 @@ import { isoToDhakaInput, todayInDhaka } from "@/lib/time";
 import { parseId } from "@/lib/validation";
 import {
   addGuestAction,
-  assignForUserAction,
+  addMenuItemAction,
   backToDraftAction,
   closeMenuAction,
   deleteMenuAction,
   markDeliveredAction,
   openMenuAction,
   removeGuestAction,
+  removeMenuItemAction,
   reopenMenuAction,
+  replaceMenuItemAction,
   saveMenuDraft,
+  setAssignmentAction,
+  setLeaveAction,
 } from "../actions";
-import { AssignForm, GuestForm, MenuForm, ReopenForm } from "../menu-forms";
+import {
+  AddMenuItemCard,
+  AssignList,
+  GuestForm,
+  LeaveList,
+  MenuForm,
+  MenuItemActions,
+  ReopenForm,
+  type EmployeeRow,
+} from "../menu-forms";
 
 export const metadata: Metadata = { title: "মেনু" };
 
@@ -63,18 +81,8 @@ export default async function MenuDetailPage({ params }: PageProps<"/admin/menus
     (person): person is PersonChoice & { guestId: number } => person.guestId !== null,
   );
   const canAssign = menu.status === "open" || menu.status === "closed";
-
-  const info: { icon: IconName; label: string; value: string }[] = [];
-  if (menu.cutoffAt) info.push({ icon: "clock", label: "কাটঅফ", value: formatDateTime(menu.cutoffAt) });
-  if (menu.closedAt) info.push({ icon: "lock", label: "বন্ধ হয়েছে", value: formatDateTime(menu.closedAt) });
-  if (menu.deliveredAt) info.push({ icon: "truck", label: "ডেলিভারি", value: formatDateTime(menu.deliveredAt) });
-  if (menu.status === "open") {
-    info.push({ icon: "users", label: "এখন পর্যন্ত নিজে বেছেছে", value: `${formatNumber(selectionCount)} জন` });
-  }
-  if (menu.status === "closed" || menu.status === "delivered") {
-    info.push({ icon: "users", label: "মোট", value: `${formatNumber(selectionCount)} জন (ডিফল্টসহ)` });
-  }
-  if (guests.length > 0) info.push({ icon: "user-plus", label: "গেস্ট", value: `${formatNumber(guests.length)} জন` });
+  const leaves = menu.status === "draft" ? [] : await listLeaves(menu.menuDate);
+  const employees = canAssign ? await listEmployees(options, people, leaves) : [];
 
   return (
     <div className="stagger space-y-6">
@@ -82,7 +90,6 @@ export default async function MenuDetailPage({ params }: PageProps<"/admin/menus
         title={formatDate(menu.menuDate)}
         icon="clipboard"
         badge={<MenuStatusBadge status={menu.status} />}
-        backHref="/admin/menus"
         action={
           menu.status !== "draft" && (
             <Link href={`/history/${menuId}`} className={buttonClass.secondary}>
@@ -95,21 +102,6 @@ export default async function MenuDetailPage({ params }: PageProps<"/admin/menus
 
       <section className={cardClass}>
         <StatusSteps status={menu.status} />
-        {info.length > 0 && (
-          <dl className="mt-6 grid gap-x-6 gap-y-4 border-t border-slate-100 pt-5 text-sm sm:grid-cols-2 lg:grid-cols-3">
-            {info.map((item) => (
-              <div key={item.label} className="flex items-center gap-3">
-                <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-500">
-                  <Icon name={item.icon} className="size-4" />
-                </span>
-                <div className="min-w-0">
-                  <dt className="text-xs text-slate-500">{item.label}</dt>
-                  <dd className="font-semibold text-slate-900">{item.value}</dd>
-                </div>
-              </div>
-            ))}
-          </dl>
-        )}
         {menu.note && (
           <div className="mt-5">
             <Callout tone="amber" icon="note">
@@ -117,138 +109,118 @@ export default async function MenuDetailPage({ params }: PageProps<"/admin/menus
             </Callout>
           </div>
         )}
+
+        {menu.status === "open" && (
+          <ActionBar
+            hint="কাটঅফের আগেই বন্ধ করলে যারা বাছেনি তারা ডিফল্ট পাবে।"
+            actions={
+              <>
+                {selectionCount === 0 && guests.length === 0 && (
+                  <ActionButton action={backToDraftAction.bind(null, menuId)} icon="undo">
+                    খসড়ায় ফেরান (আইটেম বদলাতে)
+                  </ActionButton>
+                )}
+                <ActionButton
+                  action={closeMenuAction.bind(null, menuId)}
+                  variant="danger"
+                  icon="lock"
+                  confirmMessage="কাটঅফের আগেই মেনু বন্ধ করবেন? যারা বাছেনি তারা ডিফল্ট পাবে।"
+                >
+                  এখনই বন্ধ করুন
+                </ActionButton>
+              </>
+            }
+          />
+        )}
+
+        {menu.status === "closed" && (
+          <ActionBar
+            hint="অর্ডার দেওয়া আর নাস্তা আসার পর ডেলিভারি মার্ক করুন।"
+            actions={
+              <ActionButton action={markDeliveredAction.bind(null, menuId)} variant="primary" icon="check">
+                ডেলিভারি হয়েছে
+              </ActionButton>
+            }
+          >
+            <details className="group mt-4 border-t border-slate-200/70 pt-4">
+              <summary className="inline-flex cursor-pointer list-none items-center gap-1.5 text-sm font-semibold text-slate-600 transition hover:text-slate-900 [&::-webkit-details-marker]:hidden">
+                <Icon name="chevron-right" className="size-4 transition group-open:rotate-90" />
+                আবার খুলতে হবে?
+              </summary>
+              <div className="mt-3 space-y-3">
+                <p className="text-sm text-slate-500">
+                  নতুন কাটঅফ লাগবে। বন্ধের সময় অটো-বসানো ডিফল্টগুলো মুছে যাবে; যারা নিজে বেছেছিল তাদের বাছাই থাকবে।
+                </p>
+                <ReopenForm action={reopenMenuAction.bind(null, menuId)} />
+              </div>
+            </details>
+          </ActionBar>
+        )}
       </section>
 
       {menu.status === "draft" ? (
         <DraftSection menuId={menuId} menu={menu} options={options} />
+      ) : canAssign ? (
+        <section className={cardClass}>
+          <Tabs
+            tabs={[
+              {
+                id: "items",
+                label: "আইটেম",
+                icon: "cookie",
+                count: options.length,
+                content: <ItemsPanel menuId={menuId} options={options} people={people} />,
+              },
+              {
+                id: "guests",
+                label: "গেস্ট",
+                icon: "user-plus",
+                count: guests.length,
+                content: <GuestPanel menuId={menuId} options={options} guests={guests} />,
+              },
+              {
+                id: "leave",
+                label: "ছুটি",
+                icon: "calendar",
+                count: leaves.length,
+                content: <LeavePanel menuDate={menu.menuDate} employees={employees} />,
+              },
+              {
+                id: "assign",
+                label: "বরাদ্দ",
+                icon: "users",
+                content: <AssignPanel menuId={menuId} options={options} employees={employees} />,
+              },
+            ]}
+          />
+        </section>
       ) : (
-        <div className={`grid items-start gap-6 ${canAssign ? "lg:grid-cols-2" : ""}`}>
-          <div className="space-y-6">
-            <section className={cardClass}>
-              <CardTitle
-                title="আইটেম"
-                description={`${formatNumber(options.length)}টি আইটেম`}
-                icon="cookie"
-                tone="orange"
-              />
-              <ul className="space-y-2.5">
-                {options.map((option) => {
-                  const styles = CATEGORY_STYLES[option.category];
-                  return (
-                    <li
-                      key={option.snackItemId}
-                      className="flex items-center gap-3 rounded-2xl border border-slate-200/70 bg-slate-50/50 p-3"
-                    >
-                      <span
-                        className={`flex size-10 shrink-0 items-center justify-center rounded-xl bg-linear-to-br ${
-                          styles.placeholders[option.snackItemId % styles.placeholders.length]
-                        }`}
-                      >
-                        <CategoryIcon category={option.category} className="size-5" />
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block font-medium text-slate-900">{option.name}</span>
-                        <span className="mt-1 flex flex-wrap items-center gap-1.5">
-                          <CategoryBadge category={option.category} />
-                          {option.isDefault && <DefaultBadge />}
-                        </span>
-                      </span>
-                      <span className="shrink-0 font-bold text-slate-900">{formatTaka(option.price)}</span>
-                    </li>
-                  );
-                })}
-              </ul>
-            </section>
-
-            {menu.status === "open" && (
-              <section className={cardClass}>
-                <CardTitle
-                  title="মেনু খোলা আছে"
-                  description="কাটঅফের আগেই বন্ধ করলে যারা বাছেনি তারা ডিফল্ট পাবে।"
-                  icon="clock"
-                  tone="emerald"
-                />
-                <div className="flex flex-wrap gap-3">
-                  <ActionButton
-                    action={closeMenuAction.bind(null, menuId)}
-                    variant="danger"
-                    icon="lock"
-                    confirmMessage="কাটঅফের আগেই মেনু বন্ধ করবেন? যারা বাছেনি তারা ডিফল্ট পাবে।"
-                  >
-                    এখনই বন্ধ করুন
-                  </ActionButton>
-                  {selectionCount === 0 && guests.length === 0 && (
-                    <ActionButton action={backToDraftAction.bind(null, menuId)} icon="undo">
-                      খসড়ায় ফেরান (আইটেম বদলাতে)
-                    </ActionButton>
-                  )}
-                </div>
-              </section>
-            )}
-
-            {menu.status === "closed" && (
-              <>
-                <section className={cardClass}>
-                  <CardTitle title="অর্ডার দেওয়া আর নাস্তা আসার পর" icon="truck" tone="sky" />
-                  <ActionButton action={markDeliveredAction.bind(null, menuId)} variant="primary" icon="check">
-                    ডেলিভারি হয়েছে
-                  </ActionButton>
-                </section>
-                <section className={cardClass}>
-                  <CardTitle
-                    title="আবার খুলুন"
-                    description="নতুন কাটঅফ লাগবে। বন্ধের সময় অটো-বসানো ডিফল্টগুলো মুছে যাবে; যারা নিজে বেছেছিল তাদের বাছাই থাকবে।"
-                    icon="undo"
-                    tone="amber"
-                  />
-                  <ReopenForm action={reopenMenuAction.bind(null, menuId)} />
-                </section>
-              </>
-            )}
-          </div>
-
-          {canAssign && (
-            <div className="space-y-6">
-              <AssignSection menuId={menuId} options={options} people={people} />
-
-              <section className={cardClass}>
-                <CardTitle
-                  title="গেস্ট"
-                  description="অফিসের বাইরের কেউ এলে। নম্বর নিজে থেকে বসবে (গেস্ট ১, ২…), খরচ মোট হিসাবে যোগ হবে।"
-                  icon="user-plus"
-                  tone="rose"
-                />
-                {guests.length > 0 && (
-                  <ul className="mb-5 divide-y divide-slate-100 rounded-2xl border border-slate-200/70">
-                    {guests.map((guest) => (
-                      <li key={guest.guestId} className="flex items-center justify-between gap-3 px-3.5 py-2.5 text-sm">
-                        <span className="flex min-w-0 items-center gap-3">
-                          <Avatar name={guest.name} className="size-8 text-xs" />
-                          <span className="min-w-0">
-                            <span className="block truncate font-medium text-slate-900">{guest.name}</span>
-                            <span className="block text-xs text-slate-500">
-                              {itemName(options, guest.snackItemId)} · দিয়েছেন: {guest.assignedByName}
-                            </span>
-                          </span>
-                        </span>
-                        <ActionButton
-                          action={removeGuestAction.bind(null, menuId, guest.guestId)}
-                          variant="subtle"
-                          icon="trash"
-                          confirmMessage={`${guest.name} মুছে ফেলবেন?`}
-                        >
-                          মুছুন
-                        </ActionButton>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                <GuestForm action={addGuestAction.bind(null, menuId)} options={options} />
-              </section>
-            </div>
-          )}
-        </div>
+        <section className={cardClass}>
+          <CardTitle
+            title="আইটেম"
+            description={`${formatNumber(options.length)}টি আইটেম`}
+            icon="cookie"
+            tone="orange"
+          />
+          <ItemList options={options} />
+        </section>
       )}
+    </div>
+  );
+}
+
+// স্ট্যাটাস কার্ডের নিচের ফুটার: বাঁয়ে ব্যাখ্যা, ডানে বাটন
+function ActionBar({ hint, actions, children }: { hint: string; actions: ReactNode; children?: ReactNode }) {
+  return (
+    <div className="-mx-5 mt-6 -mb-5 rounded-b-3xl border-t border-slate-100 bg-slate-50/70 px-5 py-4 sm:-mx-6 sm:-mb-6 sm:px-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <p className="flex items-start gap-2 text-sm text-slate-500">
+          <Icon name="info" className="mt-0.5 size-4 shrink-0" />
+          {hint}
+        </p>
+        <div className="flex flex-wrap gap-3">{actions}</div>
+      </div>
+      {children}
     </div>
   );
 }
@@ -296,7 +268,51 @@ function itemName(options: MenuOption[], snackItemId: number): string {
   return options.find((option) => option.snackItemId === snackItemId)?.name ?? "";
 }
 
-async function AssignSection({
+function ItemList({
+  options,
+  footer,
+  extra,
+}: {
+  options: MenuOption[];
+  footer?: (option: MenuOption) => ReactNode;
+  extra?: ReactNode;
+}) {
+  return (
+    <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      {options.map((option) => {
+        const styles = CATEGORY_STYLES[option.category];
+        return (
+          <li
+            key={option.snackItemId}
+            className="flex flex-col rounded-2xl border border-slate-200/70 bg-slate-50/50 p-3"
+          >
+            <div className="flex items-center gap-3">
+              <span
+                className={`flex size-10 shrink-0 items-center justify-center rounded-xl bg-linear-to-br ${
+                  styles.placeholders[option.snackItemId % styles.placeholders.length]
+                }`}
+              >
+                <CategoryIcon category={option.category} className="size-5" />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block font-medium text-slate-900">{option.name}</span>
+                <span className="mt-1 flex flex-wrap items-center gap-1.5">
+                  <CategoryBadge category={option.category} />
+                  {option.isDefault && <DefaultBadge />}
+                </span>
+              </span>
+              <span className="shrink-0 font-bold text-slate-900">{formatTaka(option.price)}</span>
+            </div>
+            {footer && <div className="mt-auto">{footer(option)}</div>}
+          </li>
+        );
+      })}
+      {extra && <li>{extra}</li>}
+    </ul>
+  );
+}
+
+async function ItemsPanel({
   menuId,
   options,
   people,
@@ -305,30 +321,182 @@ async function AssignSection({
   options: MenuOption[];
   people: PersonChoice[];
 }) {
-  const db = await getDb();
-  const result = await db.execute(
-    "SELECT id, name, employee_id FROM users WHERE is_active = 1 ORDER BY name COLLATE NOCASE",
-  );
-  const current = new Map(people.map((person) => [person.userId, person]));
-  const users = result.rows.map((row) => {
-    const id = Number(row.id);
-    const choice = current.get(id);
-    const now = choice
-      ? ` · এখন: ${itemName(options, choice.snackItemId)}${choice.isDefault ? " (ডিফল্ট)" : ""}`
-      : "";
-    return { id, label: `${String(row.name)} (${String(row.employee_id)})${now}` };
-  });
+  const candidates = await listSnacksToAdd(menuId);
+  // খোলা মেনুতে যারা এখনো বাছেনি তারাও ডিফল্ট হিসেবে ধরা, সাথে গেস্ট
+  const takenBy = (snackItemId: number) => people.filter((person) => person.snackItemId === snackItemId).length;
+  // নিজে বেছেছে বা বরাদ্দ পেয়েছে (গেস্টসহ); এমন কেউ থাকলে আইটেম আর বদলানো বা সরানো যায় না
+  const chosenBy = (snackItemId: number) =>
+    people.filter((person) => person.snackItemId === snackItemId && !person.isDefault).length;
 
   return (
-    <section className={cardClass}>
-      <CardTitle
-        title="কারো হয়ে বাছাই"
-        description="কেউ সাইটে ঢুকতে না পারলে তার হয়ে আইটেম দিন। সারাংশে আপনার নাম দেখাবে। মেনু খোলা থাকলে সে নিজে পরে বদলাতে পারবে।"
-        icon="users"
-        tone="sky"
+    <Panel description="কেউ নিজে বেছে নিলে বা বরাদ্দ পেলে (গেস্টসহ) সেই আইটেম আর বদলানো বা সরানো যায় না। বদলালে একই গ্রুপের আইটেম দিতে হবে, যারা ডিফল্ট হিসেবে পাচ্ছিল তারা নতুনটা পাবে। ডিফল্ট নয় এমন আইটেম কেউ না নিলে সরানো যায়। ৩টার কম থাকলে আরেকটা যোগ করা যায়।">
+      <ItemList
+        options={options}
+        footer={(option) => (
+          <MenuItemActions
+            itemName={option.name}
+            takenBy={takenBy(option.snackItemId)}
+            chosenBy={chosenBy(option.snackItemId)}
+            canRemove={!option.isDefault && takenBy(option.snackItemId) === 0}
+            candidates={candidates.filter((snack) => snack.category === option.category)}
+            replaceAction={replaceMenuItemAction.bind(null, menuId, option.snackItemId)}
+            removeAction={removeMenuItemAction.bind(null, menuId, option.snackItemId)}
+          />
+        )}
+        extra={
+          options.length < 3 && (
+            <AddMenuItemCard action={addMenuItemAction.bind(null, menuId)} candidates={candidates} />
+          )
+        }
       />
-      <AssignForm action={assignForUserAction.bind(null, menuId)} users={users} options={options} />
-    </section>
+    </Panel>
+  );
+}
+
+// ট্যাবের ভেতর: উপরে ব্যাখ্যা, তারপর বাঁয়ে ফর্ম আর ডানে তালিকা (বড় স্ক্রিনে); তালিকা না থাকলে ফর্ম পুরো চওড়া
+function Panel({ description, list, children }: { description: string; list?: ReactNode; children: ReactNode }) {
+  return (
+    <div className="space-y-5">
+      <p className="text-sm text-slate-500">{description}</p>
+      {list ? (
+        <div className="grid items-start gap-6 lg:grid-cols-2">
+          <div>{children}</div>
+          {list}
+        </div>
+      ) : (
+        children
+      )}
+    </div>
+  );
+}
+
+function PersonRow({ name, detail, children }: { name: string; detail: string; children: ReactNode }) {
+  return (
+    <li className="flex items-center justify-between gap-3 px-3.5 py-2.5 text-sm">
+      <span className="flex min-w-0 items-center gap-3">
+        <Avatar name={name} className="size-8 text-xs" />
+        <span className="min-w-0">
+          <span className="block truncate font-medium text-slate-900">{name}</span>
+          <span className="block text-xs text-slate-500">{detail}</span>
+        </span>
+      </span>
+      {children}
+    </li>
+  );
+}
+
+function PersonList({ empty, children }: { empty: string; children: ReactNode[] }) {
+  if (children.length === 0) {
+    return (
+      <p className="rounded-2xl border border-dashed border-slate-300 bg-slate-50/50 p-4 text-center text-sm text-slate-500">
+        {empty}
+      </p>
+    );
+  }
+  return <ul className="divide-y divide-slate-100 rounded-2xl border border-slate-200/70">{children}</ul>;
+}
+
+function leaveGivenBy(leave: Leave): string {
+  if (leave.source === "self") return "নিজে দিয়েছে";
+  if (leave.source === "api") return "অটো (API)";
+  return `দিয়েছেন: ${leave.createdByName ?? ""}`;
+}
+
+function choiceNote(choice: PersonChoice | undefined): string | null {
+  if (!choice) return "কিছু বরাদ্দ নেই";
+  if (choice.assignedByName) return `বরাদ্দ: ${choice.assignedByName}`;
+  return choice.isDefault ? null : "নিজে বেছেছে";
+}
+
+// সক্রিয় সবাই: এখন কী পাচ্ছে, তার গ্রুপের ডিফল্ট কী, আর ছুটিতে আছে কিনা
+async function listEmployees(
+  options: MenuOption[],
+  people: PersonChoice[],
+  leaves: Leave[],
+): Promise<EmployeeRow[]> {
+  const db = await getDb();
+  const result = await db.execute(
+    "SELECT id, name, employee_id, default_category FROM users WHERE is_active = 1 ORDER BY name COLLATE NOCASE",
+  );
+  const current = new Map(people.map((person) => [person.userId, person]));
+  const leaveOf = new Map(leaves.map((leave) => [leave.userId, leave]));
+
+  return result.rows.map((row) => {
+    const id = Number(row.id);
+    const choice = current.get(id);
+    const leave = leaveOf.get(id);
+    const groupDefault = options.find((option) => option.category === row.default_category && option.isDefault);
+    return {
+      id,
+      name: String(row.name),
+      employeeId: String(row.employee_id),
+      choice: choice && !choice.isDefault ? String(choice.snackItemId) : "default",
+      choiceNote: choiceNote(choice),
+      defaultItemName: groupDefault?.name ?? "",
+      leaveNote: leave ? leaveGivenBy(leave) : null,
+    };
+  });
+}
+
+function AssignPanel({
+  menuId,
+  options,
+  employees,
+}: {
+  menuId: number;
+  options: MenuOption[];
+  employees: EmployeeRow[];
+}) {
+  return (
+    <Panel description="কেউ সাইটে ঢুকতে না পারলে তার হয়ে আইটেম বরাদ্দ করুন, বদলালেই সেভ হবে। সারাংশে আপনার নাম দেখাবে। মেনু খোলা থাকলে সে নিজে পরে বদলাতে পারবে।">
+      <AssignList employees={employees} options={options} action={setAssignmentAction.bind(null, menuId)} />
+    </Panel>
+  );
+}
+
+function LeavePanel({ menuDate, employees }: { menuDate: string; employees: EmployeeRow[] }) {
+  return (
+    <Panel description="এই দিন যারা অফিসে নেই, তাদের সুইচ চালু করুন। ছুটিতে থাকলে কিছুই পাবে না (ডিফল্টও না), আগের বাছাইও মুছে যাবে। মেনু বন্ধ হওয়ার পর ছুটি বাতিল করলে সে ডিফল্ট পাবে।">
+      <LeaveList employees={employees} action={setLeaveAction.bind(null, menuDate)} />
+    </Panel>
+  );
+}
+
+function GuestPanel({
+  menuId,
+  options,
+  guests,
+}: {
+  menuId: number;
+  options: MenuOption[];
+  guests: (PersonChoice & { guestId: number })[];
+}) {
+  return (
+    <Panel
+      description="অফিসের বাইরের কেউ এলে। নম্বর নিজে থেকে বসবে (গেস্ট ১, ২…), খরচ মোট হিসাবে যোগ হবে।"
+      list={
+        <PersonList empty="এখনো কোনো গেস্ট নেই।">
+          {guests.map((guest) => (
+            <PersonRow
+              key={guest.guestId}
+              name={guest.name}
+              detail={`${itemName(options, guest.snackItemId)} · দিয়েছেন: ${guest.assignedByName}`}
+            >
+              <ActionButton
+                action={removeGuestAction.bind(null, menuId, guest.guestId)}
+                variant="subtle"
+                icon="trash"
+                confirmMessage={`${guest.name} মুছে ফেলবেন?`}
+              >
+                মুছুন
+              </ActionButton>
+            </PersonRow>
+          ))}
+        </PersonList>
+      }
+    >
+      <GuestForm action={addGuestAction.bind(null, menuId)} options={options} />
+    </Panel>
   );
 }
 

@@ -134,7 +134,7 @@ export function MenuSummaryView({ status, summary, people }: Props) {
               return (
                 <li
                   key={person.guestId === null ? `u${person.userId}` : `g${person.guestId}`}
-                  className="flex items-center gap-3 border-b border-slate-100 py-3"
+                  className="flex items-center gap-3 border-t border-slate-100 py-3"
                 >
                   <Avatar name={person.name} />
                   {/* মোবাইলে আইটেম নামের নিচে, বড় স্ক্রিনে ডানে */}

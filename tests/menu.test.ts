@@ -4,6 +4,9 @@ import { after, beforeEach, describe, test } from "node:test";
 import { getDb } from "../lib/db.ts";
 import {
   addGuest,
+  addLeave,
+  addMenuItem,
+  assignDefault,
   assignSnack,
   backToDraft,
   chooseSnack,
@@ -13,14 +16,20 @@ import {
   effectiveChoice,
   ensureClosedIfPastCutoff,
   getMenu,
+  getLeave,
+  getMenuOptions,
   getMenuSummary,
   getMonthlyReport,
   isPastCutoff,
+  listLeaves,
   listPastMenus,
   markDelivered,
   openMenu,
   removeGuest,
+  removeLeave,
+  removeMenuItem,
   reopenMenu,
+  replaceMenuItem,
   saveDraft,
   summarizeMenu,
   validateMenuItems,
@@ -68,6 +77,7 @@ beforeEach(async () => {
     [
       "DELETE FROM selections",
       "DELETE FROM menu_guests",
+      "DELETE FROM leaves",
       "DELETE FROM menu_options",
       "DELETE FROM daily_menus",
       "UPDATE users SET is_active = CASE id WHEN 4 THEN 0 ELSE 1 END",
@@ -381,6 +391,22 @@ describe("admin: picking for someone and guests", () => {
     assert.notEqual(await addGuest(menuId, SAMOSA, "", ADMIN, NOW), null);
   });
 
+  test("back to default: open menu drops the row, closed menu puts the group default back", async () => {
+    const menuId = await createOpenMenu([BANANA, JUICE, SAMOSA], [BANANA]);
+    await assignSnack(menuId, HASAN, JUICE, ADMIN, NOW);
+    assert.equal(await assignDefault(menuId, HASAN, NOW), null);
+    assert.deepEqual(await selectionsOf(menuId), []);
+
+    await closeMenu(menuId, NOW);
+    await assignSnack(menuId, UMA, BANANA, ADMIN, NOW);
+    assert.equal(await assignDefault(menuId, UMA, NOW), null);
+    assert.deepEqual((await selectionsOf(menuId)).find(([user]) => user === UMA), [UMA, SAMOSA, 1]);
+    assert.equal(await assignedByOf(menuId, UMA), null);
+
+    await markDelivered(menuId, NOW);
+    assert.notEqual(await assignDefault(menuId, UMA, NOW), null);
+  });
+
   test("guests get running numbers and count in the summary, history and report", async () => {
     const menuId = await createOpenMenu([BANANA, SAMOSA]);
     assert.equal(await addGuest(menuId, SAMOSA, "", ADMIN, NOW), null);
@@ -421,5 +447,160 @@ describe("admin: picking for someone and guests", () => {
     assert.equal(await reopenMenu(menuId, CUTOFF, NOW), null);
     assert.deepEqual(await selectionsOf(menuId), [[UMA, BANANA, 0]]);
     assert.equal((await getMenuSummary(menuId, NOW))?.summary.guestCount, 1);
+  });
+});
+
+describe("leave", () => {
+  test("leave drops the pick, blocks picking and gets no default at close", async () => {
+    const menuId = await createOpenMenu([BANANA, JUICE, SAMOSA], [BANANA]);
+    await chooseSnack(menuId, HASAN, JUICE, NOW);
+    await assignSnack(menuId, UMA, SAMOSA, ADMIN, NOW);
+
+    assert.equal(await addLeave(HASAN, TOMORROW, "self", HASAN, NOW), null);
+    assert.equal(await addLeave(UMA, TOMORROW, "admin", ADMIN, NOW), null);
+    assert.deepEqual(await selectionsOf(menuId), []);
+    assert.deepEqual(
+      (await listLeaves(TOMORROW)).map((leave) => [leave.userId, leave.source, leave.createdByName]),
+      [
+        [HASAN, "self", "Hasan"],
+        [UMA, "admin", "Admin"],
+      ],
+    );
+
+    assert.notEqual(await chooseSnack(menuId, HASAN, BANANA, NOW), null);
+    assert.notEqual(await assignSnack(menuId, UMA, BANANA, ADMIN, NOW), null);
+    assert.notEqual(await addLeave(HASAN, TOMORROW, "self", HASAN, NOW), null);
+
+    const open = await getMenuSummary(menuId, NOW);
+    assert.deepEqual(open?.people.map((person) => person.userId), [ADMIN]);
+
+    await closeMenu(menuId, NOW);
+    assert.deepEqual(await selectionsOf(menuId), [[ADMIN, BANANA, 1]]);
+  });
+
+  test("leave given before the menu exists still counts", async () => {
+    assert.equal(await addLeave(UMA, TOMORROW, "self", UMA, NOW), null);
+    const menuId = await createOpenMenu([BANANA, SAMOSA]);
+    await closeMenu(menuId, NOW);
+    assert.deepEqual(await selectionsOf(menuId), [
+      [ADMIN, BANANA, 1],
+      [HASAN, BANANA, 1],
+    ]);
+  });
+
+  test("self only for today or later while the menu is open; admin until delivery", async () => {
+    assert.notEqual(await addLeave(HASAN, "2026-09-26", "self", HASAN, NOW), null);
+    assert.notEqual(await addLeave(HASAN, "not-a-date", "admin", ADMIN, NOW), null);
+    assert.notEqual(await addLeave(INACTIVE, TOMORROW, "admin", ADMIN, NOW), null);
+
+    const menuId = await createOpenMenu([BANANA, SAMOSA]);
+    await closeMenu(menuId, NOW);
+    assert.notEqual(await addLeave(HASAN, TOMORROW, "self", HASAN, NOW), null);
+
+    // বন্ধ মেনুতে অ্যাডমিন ছুটি দিলে ডিফল্ট সারি মোছে, বাতিল করলে ফিরে আসে
+    assert.equal(await addLeave(HASAN, TOMORROW, "admin", ADMIN, NOW), null);
+    assert.equal((await selectionsOf(menuId)).some(([user]) => user === HASAN), false);
+    assert.notEqual(await removeLeave(HASAN, TOMORROW, "self", NOW), null);
+    assert.equal(await removeLeave(HASAN, TOMORROW, "admin", NOW), null);
+    assert.equal(await getLeave(HASAN, TOMORROW), null);
+    assert.deepEqual((await selectionsOf(menuId)).find(([user]) => user === HASAN), [HASAN, BANANA, 1]);
+
+    await addLeave(UMA, TOMORROW, "admin", ADMIN, NOW);
+    await markDelivered(menuId, NOW);
+    assert.notEqual(await addLeave(HASAN, TOMORROW, "admin", ADMIN, NOW), null);
+    assert.notEqual(await removeLeave(UMA, TOMORROW, "admin", NOW), null);
+  });
+
+  test("cancelling leave on an open menu brings back the on-the-fly default", async () => {
+    const menuId = await createOpenMenu([BANANA, SAMOSA]);
+    await addLeave(HASAN, TOMORROW, "self", HASAN, NOW);
+    assert.equal((await getMenuSummary(menuId, NOW))?.summary.totalPeople, 2);
+
+    assert.equal(await removeLeave(HASAN, TOMORROW, "self", NOW), null);
+    assert.equal((await getMenuSummary(menuId, NOW))?.summary.totalPeople, 3);
+    assert.deepEqual(await selectionsOf(menuId), []);
+  });
+});
+
+describe("admin: changing items of an open or closed menu", () => {
+  const itemsOf = async (menuId: number) =>
+    (await getMenuOptions(menuId)).map((option) => [option.snackItemId, option.isDefault]);
+
+  test("add up to 3 active items, never as default and not on drafts", async () => {
+    const draftId = await createDraft([BANANA, SAMOSA], [], "2026-09-29");
+    assert.notEqual(await addMenuItem(draftId, CHIPS, NOW), null);
+
+    const menuId = await createOpenMenu([BANANA, SAMOSA]);
+    assert.notEqual(await addMenuItem(menuId, CAKE, NOW), null);
+    assert.notEqual(await addMenuItem(menuId, SAMOSA, NOW), null);
+    assert.equal(await addMenuItem(menuId, CHIPS, NOW), null);
+    assert.deepEqual(await itemsOf(menuId), [
+      [BANANA, true],
+      [CHIPS, false],
+      [SAMOSA, true],
+    ]);
+    assert.notEqual(await addMenuItem(menuId, JUICE, NOW), null);
+  });
+
+  test("remove only a non-default item that no employee or guest has", async () => {
+    const menuId = await createOpenMenu([BANANA, JUICE, SAMOSA], [BANANA]);
+    assert.notEqual(await removeMenuItem(menuId, BANANA, NOW), null);
+
+    await chooseSnack(menuId, HASAN, JUICE, NOW);
+    assert.notEqual(await removeMenuItem(menuId, JUICE, NOW), null);
+    assert.deepEqual(await selectionsOf(menuId), [[HASAN, JUICE, 0]]);
+
+    await clearChoice(menuId, HASAN, NOW);
+    await addGuest(menuId, JUICE, "", ADMIN, NOW);
+    assert.notEqual(await removeMenuItem(menuId, JUICE, NOW), null);
+
+    const guest = (await getMenuSummary(menuId, NOW))?.people.find((person) => person.guestId !== null);
+    await removeGuest(menuId, Number(guest?.guestId), NOW);
+    assert.equal(await removeMenuItem(menuId, JUICE, NOW), null);
+    assert.deepEqual(await itemsOf(menuId), [
+      [BANANA, true],
+      [SAMOSA, true],
+    ]);
+  });
+
+  test("replace is blocked once someone chose it; default takers move to the new item", async () => {
+    const menuId = await createOpenMenu([BANANA, SAMOSA]);
+
+    // নিজে বাছাই, অ্যাডমিনের বরাদ্দ আর গেস্ট, তিনটাই আটকায়
+    await chooseSnack(menuId, UMA, SAMOSA, NOW);
+    assert.notEqual(await replaceMenuItem(menuId, SAMOSA, CHIPS, NOW), null);
+    await assignSnack(menuId, UMA, SAMOSA, ADMIN, NOW);
+    assert.notEqual(await replaceMenuItem(menuId, SAMOSA, CHIPS, NOW), null);
+    await assignDefault(menuId, UMA, NOW);
+    await addGuest(menuId, SAMOSA, "", ADMIN, NOW);
+    assert.notEqual(await replaceMenuItem(menuId, SAMOSA, CHIPS, NOW), null);
+    const guest = (await getMenuSummary(menuId, NOW))?.people.find((person) => person.guestId !== null);
+    await removeGuest(menuId, Number(guest?.guestId), NOW);
+
+    assert.notEqual(await replaceMenuItem(menuId, SAMOSA, JUICE, NOW), null);
+    assert.notEqual(await replaceMenuItem(menuId, SAMOSA, CAKE, NOW), null);
+    assert.notEqual(await replaceMenuItem(menuId, SAMOSA, BANANA, NOW), null);
+
+    assert.equal(await replaceMenuItem(menuId, SAMOSA, CHIPS, NOW), null);
+    assert.deepEqual(await itemsOf(menuId), [
+      [BANANA, true],
+      [CHIPS, true],
+    ]);
+
+    // বন্ধ মেনুতে অটো ডিফল্ট সারিগুলো নতুনটায় যায়
+    await closeMenu(menuId, NOW);
+    assert.equal(await replaceMenuItem(menuId, BANANA, JUICE, NOW), null);
+    assert.deepEqual(await selectionsOf(menuId), [
+      [ADMIN, JUICE, 1],
+      [HASAN, JUICE, 1],
+      [UMA, CHIPS, 1],
+    ]);
+
+    // বন্ধ মেনুতেও কাউকে বরাদ্দ দিলে আর বদলানো যায় না
+    await assignSnack(menuId, HASAN, CHIPS, ADMIN, NOW);
+    assert.notEqual(await replaceMenuItem(menuId, CHIPS, SAMOSA, NOW), null);
+
+    await markDelivered(menuId, NOW);
+    assert.notEqual(await replaceMenuItem(menuId, JUICE, BANANA, NOW), null);
   });
 });

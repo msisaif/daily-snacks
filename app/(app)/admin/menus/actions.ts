@@ -7,6 +7,9 @@ import { requireAdmin } from "@/lib/auth";
 import { firstErrorMessage, formText, formValues, type FormState } from "@/lib/form";
 import {
   addGuest,
+  addLeave,
+  addMenuItem,
+  assignDefault,
   assignSnack,
   backToDraft,
   closeMenu,
@@ -14,10 +17,14 @@ import {
   markDelivered,
   openMenu,
   removeGuest,
+  removeLeave,
+  removeMenuItem,
   reopenMenu,
+  replaceMenuItem,
   saveDraft,
 } from "@/lib/menu";
 import { dhakaInputToIso } from "@/lib/time";
+import { parseId } from "@/lib/validation";
 
 const DATETIME_LOCAL = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
 const idListSchema = z.array(z.coerce.number({ error: "আইটেম ঠিক নেই" }).int().positive());
@@ -120,29 +127,30 @@ export async function reopenMenuAction(
   );
 }
 
-const assignSchema = z.object({
-  userId: z.coerce.number({ error: "এমপ্লয়ি বাছাই করুন" }).int().positive("এমপ্লয়ি বাছাই করুন"),
-  snackItemId: z.coerce.number({ error: "আইটেম বাছাই করুন" }).int().positive("আইটেম বাছাই করুন"),
-});
+// modal-এ আইটেমে ক্লিক করলেই ডাকা হয়, তাই id-ও যাচাই করি
+export async function addMenuItemAction(menuId: number, snackItemId: number): Promise<FormState> {
+  return runStatusChange(
+    async () => (parseId(String(snackItemId)) ? addMenuItem(menuId, snackItemId) : "আইটেম ঠিক নেই"),
+    "আইটেম যোগ হয়েছে।",
+  );
+}
 
-export async function assignForUserAction(
+export async function replaceMenuItemAction(
   menuId: number,
-  _prev: FormState,
-  formData: FormData,
+  oldSnackItemId: number,
+  newSnackItemId: number,
 ): Promise<FormState> {
-  const admin = await requireAdmin();
+  return runStatusChange(
+    async () =>
+      parseId(String(newSnackItemId))
+        ? replaceMenuItem(menuId, oldSnackItemId, newSnackItemId)
+        : "আইটেম ঠিক নেই",
+    "আইটেম বদলানো হয়েছে।",
+  );
+}
 
-  const parsed = assignSchema.safeParse({
-    userId: formText(formData, "userId"),
-    snackItemId: formText(formData, "snackItemId"),
-  });
-  if (!parsed.success) return { error: firstErrorMessage(parsed.error), values: formValues(formData) };
-
-  const error = await assignSnack(menuId, parsed.data.userId, parsed.data.snackItemId, admin.id);
-  if (error) return { error, values: formValues(formData) };
-
-  revalidatePath("/", "layout");
-  return { success: "সেভ হয়েছে" };
+export async function removeMenuItemAction(menuId: number, snackItemId: number): Promise<FormState> {
+  return runStatusChange(() => removeMenuItem(menuId, snackItemId), "আইটেম সরানো হয়েছে।");
 }
 
 const guestSchema = z.object({
@@ -172,4 +180,32 @@ export async function addGuestAction(
 
 export async function removeGuestAction(menuId: number, guestId: number): Promise<FormState> {
   return runStatusChange(() => removeGuest(menuId, guestId), "গেস্ট মুছে ফেলা হয়েছে।");
+}
+
+// তালিকার প্রতিটা সারি থেকে সরাসরি ডাকা হয়, তাই userId-ও যাচাই করি
+async function runForUser(userId: number, change: (adminId: number) => Promise<string | null>): Promise<FormState> {
+  const admin = await requireAdmin();
+  if (!parseId(String(userId))) return { error: "এমপ্লয়ি ঠিক নেই" };
+
+  const error = await change(admin.id);
+  if (error) return { error };
+  revalidatePath("/", "layout");
+  return {};
+}
+
+// choice = আইটেমের id, অথবা "default" (তার গ্রুপের ডিফল্টে ফেরা)
+export async function setAssignmentAction(menuId: number, userId: number, choice: string): Promise<FormState> {
+  return runForUser(userId, async (adminId) => {
+    if (choice === "default") return assignDefault(menuId, userId);
+
+    const snackItemId = parseId(choice);
+    if (!snackItemId) return "আইটেম ঠিক নেই";
+    return assignSnack(menuId, userId, snackItemId, adminId);
+  });
+}
+
+export async function setLeaveAction(leaveDate: string, userId: number, onLeave: boolean): Promise<FormState> {
+  return runForUser(userId, (adminId) =>
+    onLeave ? addLeave(userId, leaveDate, "admin", adminId) : removeLeave(userId, leaveDate, "admin"),
+  );
 }
