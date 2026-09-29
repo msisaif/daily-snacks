@@ -55,6 +55,7 @@ export function SnackForm({ action, budget, initial, submitLabel }: Props) {
             step="0.01"
             max={budget}
             defaultValue={values?.price ?? initial?.price}
+            onWheel={(e) => e.currentTarget.blur()}
             required
             className={inputClass}
           />

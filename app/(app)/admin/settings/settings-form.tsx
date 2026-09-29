@@ -29,6 +29,7 @@ export function SettingsForm({ budgetPerPerson, defaultCutoffTime }: Props) {
             min="0.01"
             step="0.01"
             defaultValue={values?.budgetPerPerson ?? budgetPerPerson}
+            onWheel={(e) => e.currentTarget.blur()}
             required
             className={inputClass}
           />

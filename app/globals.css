@@ -132,6 +132,16 @@
       radial-gradient(34rem 26rem at -5% 105%, rgb(56 189 248 / 0.1), transparent 70%);
   }
 
+  /* number input-এর up/down তীর লুকানো */
+  input[type="number"] {
+    appearance: textfield;
+  }
+  input[type="number"]::-webkit-inner-spin-button,
+  input[type="number"]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
   ::selection {
     background-color: var(--color-emerald-200);
     color: var(--color-emerald-950);
