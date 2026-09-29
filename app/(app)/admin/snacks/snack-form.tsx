@@ -6,6 +6,7 @@ import {
   Field,
   FormMessage,
   inputClass,
+  numberInputProps,
   RadioGroup,
   SubmitButton,
 } from "@/components/form";
@@ -55,7 +56,7 @@ export function SnackForm({ action, budget, initial, submitLabel }: Props) {
             step="0.01"
             max={budget}
             defaultValue={values?.price ?? initial?.price}
-            onWheel={(e) => e.currentTarget.blur()}
+            {...numberInputProps}
             required
             className={inputClass}
           />

@@ -1,10 +1,18 @@
-import type { ReactNode } from "react";
+import type { KeyboardEvent, ReactNode, WheelEvent } from "react";
 import { Icon, type IconName } from "@/components/icons";
 import { buttonClass, CATEGORY_STYLES } from "@/components/ui";
 import { CATEGORY_OPTIONS } from "@/lib/constants";
 
 export const inputClass =
   "w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-base text-slate-900 shadow-xs outline-none transition placeholder:text-slate-400 hover:border-slate-300 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/15";
+
+// number input-এ mouse wheel বা ↑/↓ key দিয়ে মান যেন না বদলায়
+export const numberInputProps = {
+  onWheel: (e: WheelEvent<HTMLInputElement>) => e.currentTarget.blur(),
+  onKeyDown: (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "ArrowUp" || e.key === "ArrowDown") e.preventDefault();
+  },
+};
 
 export function Field({
   label,

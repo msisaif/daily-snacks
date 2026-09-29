@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
-import { Field, FormMessage, inputClass, SubmitButton } from "@/components/form";
+import { Field, FormMessage, inputClass, numberInputProps, SubmitButton } from "@/components/form";
 import type { FormState } from "@/lib/form";
 import { updateSettings } from "./actions";
 
@@ -29,7 +29,7 @@ export function SettingsForm({ budgetPerPerson, defaultCutoffTime }: Props) {
             min="0.01"
             step="0.01"
             defaultValue={values?.budgetPerPerson ?? budgetPerPerson}
-            onWheel={(e) => e.currentTarget.blur()}
+            {...numberInputProps}
             required
             className={inputClass}
           />
