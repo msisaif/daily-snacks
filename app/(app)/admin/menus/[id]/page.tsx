@@ -5,20 +5,32 @@ import { ActionButton } from "@/components/action-button";
 import { Badge, cardClass, CategoryBadge, MenuStatusBadge, PageHeader } from "@/components/ui";
 import { requireAdmin } from "@/lib/auth";
 import { formatDate, formatDateTime, formatNumber, formatTaka } from "@/lib/format";
-import { countSelections, getMenu, getMenuOptions, listSnacksForMenuForm } from "@/lib/menu";
+import { getDb } from "@/lib/db";
+import {
+  countSelections,
+  getMenu,
+  getMenuOptions,
+  getPeopleChoices,
+  listSnacksForMenuForm,
+  type MenuOption,
+  type PersonChoice,
+} from "@/lib/menu";
 import { getSettings } from "@/lib/settings";
 import { isoToDhakaInput, todayInDhaka } from "@/lib/time";
 import { parseId } from "@/lib/validation";
 import {
+  addGuestAction,
+  assignForUserAction,
   backToDraftAction,
   closeMenuAction,
   deleteMenuAction,
   markDeliveredAction,
   openMenuAction,
+  removeGuestAction,
   reopenMenuAction,
   saveMenuDraft,
 } from "../actions";
-import { MenuForm, ReopenForm } from "../menu-forms";
+import { AssignForm, GuestForm, MenuForm, ReopenForm } from "../menu-forms";
 
 export const metadata: Metadata = { title: "মেনু" };
 
@@ -32,6 +44,11 @@ export default async function MenuDetailPage({ params }: PageProps<"/admin/menus
 
   const options = await getMenuOptions(menuId);
   const selectionCount = await countSelections(menuId);
+  const people = await getPeopleChoices(menu);
+  const guests = people.filter(
+    (person): person is PersonChoice & { guestId: number } => person.guestId !== null,
+  );
+  const canAssign = menu.status === "open" || menu.status === "closed";
 
   return (
     <div className="mx-auto max-w-xl space-y-4">
@@ -68,6 +85,11 @@ export default async function MenuDetailPage({ params }: PageProps<"/admin/menus
             <span className="text-slate-500">মোট:</span> {formatNumber(selectionCount)} জন (ডিফল্টসহ)
           </p>
         )}
+        {guests.length > 0 && (
+          <p>
+            <span className="text-slate-500">গেস্ট:</span> {formatNumber(guests.length)} জন
+          </p>
+        )}
         {menu.note && <p className="text-slate-600">নোট: {menu.note}</p>}
         {menu.status !== "draft" && (
           <Link href={`/history/${menuId}`} className="inline-block pt-1 text-emerald-700 underline">
@@ -96,6 +118,41 @@ export default async function MenuDetailPage({ params }: PageProps<"/admin/menus
         </section>
       )}
 
+      {canAssign && <AssignSection menuId={menuId} options={options} people={people} />}
+
+      {canAssign && (
+        <section className={`${cardClass} space-y-3`}>
+          <div>
+            <h2 className="font-semibold">গেস্ট</h2>
+            <p className="text-xs text-slate-500">
+              অফিসের বাইরের কেউ এলে। নম্বর নিজে থেকে বসবে (গেস্ট ১, ২…), খরচ মোট হিসাবে যোগ হবে।
+            </p>
+          </div>
+          {guests.length > 0 && (
+            <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200">
+              {guests.map((guest) => (
+                <li key={guest.guestId} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
+                  <span className="min-w-0">
+                    <span className="block truncate font-medium">{guest.name}</span>
+                    <span className="block text-slate-500">
+                      {itemName(options, guest.snackItemId)} · দিয়েছেন: {guest.assignedByName}
+                    </span>
+                  </span>
+                  <ActionButton
+                    action={removeGuestAction.bind(null, menuId, guest.guestId)}
+                    variant="secondary"
+                    confirmMessage={`${guest.name} মুছে ফেলবেন?`}
+                  >
+                    মুছুন
+                  </ActionButton>
+                </li>
+              ))}
+            </ul>
+          )}
+          <GuestForm action={addGuestAction.bind(null, menuId)} options={options} />
+        </section>
+      )}
+
       {menu.status === "open" && (
         <section className={`${cardClass} space-y-3`}>
           <h2 className="font-semibold">মেনু খোলা আছে</h2>
@@ -106,7 +163,7 @@ export default async function MenuDetailPage({ params }: PageProps<"/admin/menus
           >
             এখনই বন্ধ করুন
           </ActionButton>
-          {selectionCount === 0 && (
+          {selectionCount === 0 && guests.length === 0 && (
             <ActionButton action={backToDraftAction.bind(null, menuId)}>
               খসড়ায় ফেরান (আইটেম বদলাতে)
             </ActionButton>
@@ -133,6 +190,47 @@ export default async function MenuDetailPage({ params }: PageProps<"/admin/menus
         </>
       )}
     </div>
+  );
+}
+
+function itemName(options: MenuOption[], snackItemId: number): string {
+  return options.find((option) => option.snackItemId === snackItemId)?.name ?? "";
+}
+
+async function AssignSection({
+  menuId,
+  options,
+  people,
+}: {
+  menuId: number;
+  options: MenuOption[];
+  people: PersonChoice[];
+}) {
+  const db = await getDb();
+  const result = await db.execute(
+    "SELECT id, name, employee_id FROM users WHERE is_active = 1 ORDER BY name COLLATE NOCASE",
+  );
+  const current = new Map(people.map((person) => [person.userId, person]));
+  const users = result.rows.map((row) => {
+    const id = Number(row.id);
+    const choice = current.get(id);
+    const now = choice
+      ? ` · এখন: ${itemName(options, choice.snackItemId)}${choice.isDefault ? " (ডিফল্ট)" : ""}`
+      : "";
+    return { id, label: `${String(row.name)} (${String(row.employee_id)})${now}` };
+  });
+
+  return (
+    <section className={`${cardClass} space-y-3`}>
+      <div>
+        <h2 className="font-semibold">কারো হয়ে বাছাই</h2>
+        <p className="text-xs text-slate-500">
+          কেউ সাইটে ঢুকতে না পারলে তার হয়ে আইটেম দিন। সারাংশে আপনার নাম দেখাবে। মেনু খোলা থাকলে সে
+          নিজে পরে বদলাতে পারবে।
+        </p>
+      </div>
+      <AssignForm action={assignForUserAction.bind(null, menuId)} users={users} options={options} />
+    </section>
   );
 }
 

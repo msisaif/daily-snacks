@@ -6,11 +6,14 @@ import { z } from "zod";
 import { requireAdmin } from "@/lib/auth";
 import { firstErrorMessage, formText, formValues, type FormState } from "@/lib/form";
 import {
+  addGuest,
+  assignSnack,
   backToDraft,
   closeMenu,
   deleteDraft,
   markDelivered,
   openMenu,
+  removeGuest,
   reopenMenu,
   saveDraft,
 } from "@/lib/menu";
@@ -115,4 +118,58 @@ export async function reopenMenuAction(
     () => reopenMenu(menuId, dhakaInputToIso(parsed.data.cutoff)),
     "মেনু আবার খোলা হয়েছে।",
   );
+}
+
+const assignSchema = z.object({
+  userId: z.coerce.number({ error: "এমপ্লয়ি বাছাই করুন" }).int().positive("এমপ্লয়ি বাছাই করুন"),
+  snackItemId: z.coerce.number({ error: "আইটেম বাছাই করুন" }).int().positive("আইটেম বাছাই করুন"),
+});
+
+export async function assignForUserAction(
+  menuId: number,
+  _prev: FormState,
+  formData: FormData,
+): Promise<FormState> {
+  const admin = await requireAdmin();
+
+  const parsed = assignSchema.safeParse({
+    userId: formText(formData, "userId"),
+    snackItemId: formText(formData, "snackItemId"),
+  });
+  if (!parsed.success) return { error: firstErrorMessage(parsed.error), values: formValues(formData) };
+
+  const error = await assignSnack(menuId, parsed.data.userId, parsed.data.snackItemId, admin.id);
+  if (error) return { error, values: formValues(formData) };
+
+  revalidatePath("/", "layout");
+  return { success: "সেভ হয়েছে" };
+}
+
+const guestSchema = z.object({
+  name: z.string().trim().max(50, "নাম সর্বোচ্চ ৫০ অক্ষরের হতে পারে"),
+  snackItemId: z.coerce.number({ error: "আইটেম বাছাই করুন" }).int().positive("আইটেম বাছাই করুন"),
+});
+
+export async function addGuestAction(
+  menuId: number,
+  _prev: FormState,
+  formData: FormData,
+): Promise<FormState> {
+  const admin = await requireAdmin();
+
+  const parsed = guestSchema.safeParse({
+    name: formText(formData, "name"),
+    snackItemId: formText(formData, "snackItemId"),
+  });
+  if (!parsed.success) return { error: firstErrorMessage(parsed.error), values: formValues(formData) };
+
+  const error = await addGuest(menuId, parsed.data.snackItemId, parsed.data.name, admin.id);
+  if (error) return { error, values: formValues(formData) };
+
+  revalidatePath("/", "layout");
+  return { success: "গেস্ট যোগ হয়েছে" };
+}
+
+export async function removeGuestAction(menuId: number, guestId: number): Promise<FormState> {
+  return runStatusChange(() => removeGuest(menuId, guestId), "গেস্ট মুছে ফেলা হয়েছে।");
 }

@@ -3,6 +3,8 @@ import { readdirSync, readFileSync } from "node:fs";
 import { after, beforeEach, describe, test } from "node:test";
 import { getDb } from "../lib/db.ts";
 import {
+  addGuest,
+  assignSnack,
   backToDraft,
   chooseSnack,
   clearChoice,
@@ -14,8 +16,10 @@ import {
   getMenuSummary,
   getMonthlyReport,
   isPastCutoff,
+  listPastMenus,
   markDelivered,
   openMenu,
+  removeGuest,
   reopenMenu,
   saveDraft,
   summarizeMenu,
@@ -63,6 +67,7 @@ beforeEach(async () => {
   await db.batch(
     [
       "DELETE FROM selections",
+      "DELETE FROM menu_guests",
       "DELETE FROM menu_options",
       "DELETE FROM daily_menus",
       "UPDATE users SET is_active = CASE id WHEN 4 THEN 0 ELSE 1 END",
@@ -96,6 +101,15 @@ async function selectionsOf(menuId: number) {
     args: [menuId],
   });
   return result.rows.map((row) => [Number(row.user_id), Number(row.snack_item_id), Number(row.is_default)]);
+}
+
+async function assignedByOf(menuId: number, userId: number) {
+  const result = await db.execute({
+    sql: "SELECT assigned_by FROM selections WHERE menu_id = ? AND user_id = ?",
+    args: [menuId, userId],
+  });
+  const value = result.rows[0]?.assigned_by;
+  return value === null || value === undefined ? null : Number(value);
 }
 
 const snack = (id: number, category: "healthy" | "unhealthy", price = 10, isActive = true): SnackForMenu => ({
@@ -163,13 +177,14 @@ describe("pure helpers", () => {
       snackItemId, category, price, name: "", description: null, imageUrl: null, isDefault: false,
     });
     const person = (snackItemId: number, isDefault: boolean) => ({
-      userId: 0, name: "", employeeId: "", snackItemId, isDefault,
+      userId: 0, guestId: null, name: "", employeeId: "", snackItemId, isDefault, assignedByName: null,
     });
     const summary = summarizeMenu(
       [option(1, "healthy", 10), option(3, "unhealthy", 25)],
       [person(1, true), person(3, false), person(3, true)],
     );
     assert.equal(summary.totalPeople, 3);
+    assert.equal(summary.guestCount, 0);
     assert.equal(summary.totalCost, 60);
     assert.equal(summary.healthyCount, 1);
     assert.equal(summary.unhealthyCount, 2);
@@ -336,5 +351,75 @@ describe("summary and report", () => {
       unhealthyCount: 1,
       totalCost: 10 + 10 + 25,
     });
+  });
+});
+
+describe("admin: picking for someone and guests", () => {
+  test("assign while open records the admin; the employee's own change clears it", async () => {
+    const menuId = await createOpenMenu([BANANA, JUICE, SAMOSA], [BANANA]);
+    assert.equal(await assignSnack(menuId, HASAN, JUICE, ADMIN, NOW), null);
+    assert.deepEqual(await selectionsOf(menuId), [[HASAN, JUICE, 0]]);
+    assert.equal(await assignedByOf(menuId, HASAN), ADMIN);
+
+    assert.equal(await chooseSnack(menuId, HASAN, SAMOSA, NOW), null);
+    assert.equal(await assignedByOf(menuId, HASAN), null);
+  });
+
+  test("assign replaces the auto default on a closed menu; not on draft/delivered or for inactive users", async () => {
+    const draftId = await createDraft([BANANA, SAMOSA], [], "2026-09-29");
+    assert.notEqual(await assignSnack(draftId, HASAN, BANANA, ADMIN, NOW), null);
+
+    const menuId = await createOpenMenu([BANANA, SAMOSA]);
+    await closeMenu(menuId, NOW);
+    assert.equal(await assignSnack(menuId, UMA, BANANA, ADMIN, NOW), null);
+    assert.deepEqual((await selectionsOf(menuId)).find(([user]) => user === UMA), [UMA, BANANA, 0]);
+    assert.notEqual(await assignSnack(menuId, INACTIVE, BANANA, ADMIN, NOW), null);
+    assert.notEqual(await assignSnack(menuId, HASAN, CHIPS, ADMIN, NOW), null);
+
+    await markDelivered(menuId, NOW);
+    assert.notEqual(await assignSnack(menuId, HASAN, SAMOSA, ADMIN, NOW), null);
+    assert.notEqual(await addGuest(menuId, SAMOSA, "", ADMIN, NOW), null);
+  });
+
+  test("guests get running numbers and count in the summary, history and report", async () => {
+    const menuId = await createOpenMenu([BANANA, SAMOSA]);
+    assert.equal(await addGuest(menuId, SAMOSA, "", ADMIN, NOW), null);
+    assert.equal(await addGuest(menuId, BANANA, "Rahim", ADMIN, NOW), null);
+    assert.notEqual(await addGuest(menuId, CHIPS, "", ADMIN, NOW), null);
+
+    const data = await getMenuSummary(menuId, NOW);
+    const guests = data?.people.filter((person) => person.guestId !== null) ?? [];
+    assert.deepEqual(guests.map((guest) => guest.name), ["গেস্ট ১", "গেস্ট ২ (Rahim)"]);
+    assert.equal(data?.summary.guestCount, 2);
+    assert.equal(data?.summary.totalPeople, 3 + 2);
+
+    // মোছা নম্বর আবার ব্যবহার হয় না
+    assert.equal(await removeGuest(menuId, Number(guests[0].guestId), NOW), null);
+    assert.equal(await addGuest(menuId, SAMOSA, "", ADMIN, NOW), null);
+    const after = await getMenuSummary(menuId, NOW);
+    assert.deepEqual(
+      after?.people.filter((person) => person.guestId !== null).map((guest) => guest.name),
+      ["গেস্ট ২ (Rahim)", "গেস্ট ৩"],
+    );
+
+    // এমপ্লয়ি: Admin ও Hasan কলা, Uma সমুচা; গেস্ট: কলা আর সমুচা
+    await closeMenu(menuId, NOW);
+    const [september] = await getMonthlyReport(NOW);
+    assert.equal(september.totalCost, 10 + 10 + 25 + 10 + 25);
+    assert.deepEqual([september.healthyCount, september.unhealthyCount], [3, 2]);
+    const [past] = await listPastMenus(NOW);
+    assert.equal(past.totalPeople, 5);
+  });
+
+  test("guests block back-to-draft; reopen keeps guests and admin picks", async () => {
+    const menuId = await createOpenMenu([BANANA, SAMOSA]);
+    await addGuest(menuId, BANANA, "", ADMIN, NOW);
+    assert.notEqual(await backToDraft(menuId, NOW), null);
+
+    await closeMenu(menuId, NOW);
+    await assignSnack(menuId, UMA, BANANA, ADMIN, NOW);
+    assert.equal(await reopenMenu(menuId, CUTOFF, NOW), null);
+    assert.deepEqual(await selectionsOf(menuId), [[UMA, BANANA, 0]]);
+    assert.equal((await getMenuSummary(menuId, NOW))?.summary.guestCount, 1);
   });
 });

@@ -22,7 +22,11 @@ export function MenuSummaryView({ status, summary, people }: Props) {
       )}
 
       <dl className="grid grid-cols-2 gap-3">
-        <Stat label="মোট লোক" value={`${formatNumber(summary.totalPeople)} জন`} />
+        <Stat
+          label="মোট লোক"
+          value={`${formatNumber(summary.totalPeople)} জন`}
+          note={summary.guestCount > 0 ? `গেস্ট ${formatNumber(summary.guestCount)} জনসহ` : undefined}
+        />
         <Stat label="মোট খরচ" value={formatTaka(summary.totalCost)} />
       </dl>
 
@@ -90,9 +94,22 @@ export function MenuSummaryView({ status, summary, people }: Props) {
             {people.map((person) => {
               const item = itemById.get(person.snackItemId);
               return (
-                <li key={person.userId} className="flex items-center justify-between gap-3 py-2.5">
-                  <span className="min-w-0 truncate">
-                    {person.name} <span className="text-slate-400">{person.employeeId}</span>
+                <li
+                  key={person.guestId === null ? `u${person.userId}` : `g${person.guestId}`}
+                  className="flex items-center justify-between gap-3 py-2.5"
+                >
+                  <span className="min-w-0">
+                    <span className="flex items-center gap-1.5">
+                      <span className="truncate">{person.name}</span>
+                      {person.employeeId ? (
+                        <span className="text-slate-400">{person.employeeId}</span>
+                      ) : (
+                        <Badge tone="blue">গেস্ট</Badge>
+                      )}
+                    </span>
+                    {person.assignedByName && (
+                      <span className="block text-xs text-slate-400">দিয়েছেন: {person.assignedByName}</span>
+                    )}
                   </span>
                   <span className="flex shrink-0 items-center gap-1.5">
                     {item && <span className={`size-2 rounded-full ${CATEGORY_STYLES[item.category].dot}`} />}
@@ -109,11 +126,12 @@ export function MenuSummaryView({ status, summary, people }: Props) {
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function Stat({ label, value, note }: { label: string; value: string; note?: string }) {
   return (
     <div className={cardClass}>
       <dt className="text-xs font-medium text-slate-500">{label}</dt>
       <dd className="mt-0.5 text-xl font-bold tracking-tight">{value}</dd>
+      {note && <dd className="text-xs text-slate-500">{note}</dd>}
     </div>
   );
 }

@@ -86,7 +86,11 @@ async function MenuSection({ menu, user }: { menu: Menu; user: CurrentUser }) {
               {CATEGORY_LABELS[choice.option.category]}
             </span>
             <span className="rounded-full bg-white/15 px-2.5 py-0.5">
-              {choice.isDefault ? "ডিফল্ট" : "আপনার বাছাই"}
+              {choice.isDefault
+                ? "ডিফল্ট"
+                : selection?.assignedByName
+                  ? `${selection.assignedByName} দিয়েছেন`
+                  : "আপনার বাছাই"}
             </span>
           </div>
         </div>

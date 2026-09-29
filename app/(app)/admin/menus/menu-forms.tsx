@@ -168,3 +168,81 @@ export function ReopenForm({ action }: { action: Action }) {
     </form>
   );
 }
+
+type MenuItemOption = { snackItemId: number; name: string; category: Category };
+
+function ItemSelect({ options, defaultValue }: { options: MenuItemOption[]; defaultValue?: string }) {
+  return (
+    <Field label="আইটেম">
+      <select name="snackItemId" required defaultValue={defaultValue ?? ""} className={inputClass}>
+        <option value="" disabled>
+          আইটেম বাছাই করুন
+        </option>
+        {CATEGORIES.map((category) => (
+          <optgroup key={category} label={CATEGORY_LABELS[category]}>
+            {options
+              .filter((option) => option.category === category)
+              .map((option) => (
+                <option key={option.snackItemId} value={option.snackItemId}>
+                  {option.name}
+                </option>
+              ))}
+          </optgroup>
+        ))}
+      </select>
+    </Field>
+  );
+}
+
+export function AssignForm({
+  action,
+  users,
+  options,
+}: {
+  action: Action;
+  users: { id: number; label: string }[];
+  options: MenuItemOption[];
+}) {
+  const [state, formAction, pending] = useActionState(action, {});
+
+  return (
+    <form action={formAction} className="space-y-3">
+      <FormMessage error={state.error} success={state.success} />
+      <Field label="এমপ্লয়ি">
+        <select name="userId" required defaultValue={state.values?.userId ?? ""} className={inputClass}>
+          <option value="" disabled>
+            এমপ্লয়ি বাছাই করুন
+          </option>
+          {users.map((user) => (
+            <option key={user.id} value={user.id}>
+              {user.label}
+            </option>
+          ))}
+        </select>
+      </Field>
+      <ItemSelect options={options} defaultValue={state.values?.snackItemId} />
+      <SubmitButton pending={pending}>সেভ করুন</SubmitButton>
+    </form>
+  );
+}
+
+export function GuestForm({ action, options }: { action: Action; options: MenuItemOption[] }) {
+  const [state, formAction, pending] = useActionState(action, {});
+
+  return (
+    <form action={formAction} className="space-y-3">
+      <FormMessage error={state.error} success={state.success} />
+      <Field label="নাম (ঐচ্ছিক)">
+        <input
+          name="name"
+          maxLength={50}
+          placeholder="যেমন: ক্লায়েন্ট, রহিম সাহেব"
+          defaultValue={state.values?.name}
+          className={inputClass}
+        />
+      </Field>
+      <ItemSelect options={options} defaultValue={state.values?.snackItemId} />
+      <SubmitButton pending={pending}>গেস্ট যোগ করুন</SubmitButton>
+    </form>
+  );
+}

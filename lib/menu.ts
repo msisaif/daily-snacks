@@ -2,7 +2,7 @@
 import type { InStatement, Row } from "@libsql/client";
 import { CATEGORIES, CATEGORY_LABELS, type Category, type MenuStatus } from "./constants.ts";
 import { getDb } from "./db.ts";
-import { formatTaka } from "./format.ts";
+import { formatNumber, formatTaka } from "./format.ts";
 import { getSettings } from "./settings.ts";
 import { dhakaToIso, todayInDhaka } from "./time.ts";
 
@@ -127,12 +127,15 @@ export function effectiveChoice<T extends { snackItemId: number; category: Categ
   return fallback ? { option: fallback, isDefault: true } : null;
 }
 
+// এমপ্লয়ি হলে userId আর employeeId থাকে, গেস্ট হলে guestId
 export type PersonChoice = {
-  userId: number;
+  userId: number | null;
+  guestId: number | null;
   name: string;
-  employeeId: string;
+  employeeId: string | null;
   snackItemId: number;
   isDefault: boolean;
+  assignedByName: string | null; // অ্যাডমিন বসালে তার নাম
 };
 
 export type ItemSummary = MenuOption & {
@@ -146,6 +149,7 @@ export type ItemSummary = MenuOption & {
 export type MenuSummary = {
   items: ItemSummary[];
   totalPeople: number;
+  guestCount: number;
   totalCost: number;
   healthyCount: number;
   unhealthyCount: number;
@@ -171,6 +175,7 @@ export function summarizeMenu(options: MenuOption[], people: PersonChoice[]): Me
   return {
     items,
     totalPeople: items.reduce((sum, item) => sum + item.count, 0),
+    guestCount: people.filter((person) => person.guestId !== null).length,
     totalCost: items.reduce((sum, item) => sum + item.subtotal, 0),
     healthyCount: countIn("healthy"),
     unhealthyCount: countIn("unhealthy"),
@@ -281,19 +286,34 @@ export async function getHomeMenus(now = new Date()): Promise<Menu[]> {
   return result.rows.map(toMenu);
 }
 
-export async function getUserSelection(menuId: number, userId: number): Promise<Selection | null> {
+export type UserSelection = Selection & { assignedByName: string | null };
+
+export async function getUserSelection(menuId: number, userId: number): Promise<UserSelection | null> {
   const db = await getDb();
   const result = await db.execute({
-    sql: "SELECT snack_item_id, is_default FROM selections WHERE menu_id = ? AND user_id = ?",
+    sql: `SELECT s.snack_item_id, s.is_default, a.name AS assigned_by_name
+          FROM selections s
+          LEFT JOIN users a ON a.id = s.assigned_by
+          WHERE s.menu_id = ? AND s.user_id = ?`,
     args: [menuId, userId],
   });
   const row = result.rows[0];
   if (!row) return null;
-  return { snackItemId: Number(row.snack_item_id), isDefault: Number(row.is_default) === 1 };
+  return {
+    snackItemId: Number(row.snack_item_id),
+    isDefault: Number(row.is_default) === 1,
+    assignedByName: row.assigned_by_name === null ? null : String(row.assigned_by_name),
+  };
+}
+
+export function guestLabel(guestNo: number, name: string | null): string {
+  const label = `গেস্ট ${formatNumber(guestNo)}`;
+  return name ? `${label} (${name})` : label;
 }
 
 // খোলা মেনু: প্রত্যেক সক্রিয় ইউজার, বাছাই না থাকলে তার গ্রুপের ডিফল্ট (সেভ হয় না)
 // বন্ধ/ডেলিভারড মেনু: selections-এ যা সেভ আছে (ডিফল্টসহ), পরে কেউ নিষ্ক্রিয় হলেও হিসাব বদলায় না
+// গেস্টরা সবার শেষে
 export async function getPeopleChoices(menu: Menu): Promise<PersonChoice[]> {
   if (menu.status === "draft") return [];
 
@@ -303,9 +323,11 @@ export async function getPeopleChoices(menu: Menu): Promise<PersonChoice[]> {
       ? await db.execute({
           sql: `SELECT u.id AS user_id, u.name, u.employee_id,
                        COALESCE(s.snack_item_id, d.snack_item_id) AS snack_item_id,
-                       CASE WHEN s.snack_item_id IS NULL THEN 1 ELSE s.is_default END AS is_default
+                       CASE WHEN s.snack_item_id IS NULL THEN 1 ELSE s.is_default END AS is_default,
+                       a.name AS assigned_by_name
                 FROM users u
                 LEFT JOIN selections s ON s.menu_id = ? AND s.user_id = u.id
+                LEFT JOIN users a ON a.id = s.assigned_by
                 LEFT JOIN menu_options d
                   ON d.menu_id = ? AND d.category = u.default_category AND d.is_default = 1
                 WHERE u.is_active = 1
@@ -313,23 +335,48 @@ export async function getPeopleChoices(menu: Menu): Promise<PersonChoice[]> {
           args: [menu.id, menu.id],
         })
       : await db.execute({
-          sql: `SELECT u.id AS user_id, u.name, u.employee_id, s.snack_item_id, s.is_default
+          sql: `SELECT u.id AS user_id, u.name, u.employee_id, s.snack_item_id, s.is_default,
+                       a.name AS assigned_by_name
                 FROM selections s
                 JOIN users u ON u.id = s.user_id
+                LEFT JOIN users a ON a.id = s.assigned_by
                 WHERE s.menu_id = ?
                 ORDER BY u.name COLLATE NOCASE`,
           args: [menu.id],
         });
 
-  return result.rows
+  const guests = await db.execute({
+    sql: `SELECT g.id, g.guest_no, g.name, g.snack_item_id, a.name AS assigned_by_name
+          FROM menu_guests g
+          JOIN users a ON a.id = g.assigned_by
+          WHERE g.menu_id = ?
+          ORDER BY g.guest_no`,
+    args: [menu.id],
+  });
+
+  const employees = result.rows
     .filter((row) => row.snack_item_id !== null)
     .map((row) => ({
       userId: Number(row.user_id),
+      guestId: null,
       name: String(row.name),
       employeeId: String(row.employee_id),
       snackItemId: Number(row.snack_item_id),
       isDefault: Number(row.is_default) === 1,
+      assignedByName: row.assigned_by_name === null ? null : String(row.assigned_by_name),
     }));
+
+  const guestChoices = guests.rows.map((row) => ({
+    userId: null,
+    guestId: Number(row.id),
+    name: guestLabel(Number(row.guest_no), row.name === null ? null : String(row.name)),
+    employeeId: null,
+    snackItemId: Number(row.snack_item_id),
+    isDefault: false,
+    assignedByName: String(row.assigned_by_name),
+  }));
+
+  return [...employees, ...guestChoices];
 }
 
 export async function getMenuSummary(
@@ -343,6 +390,11 @@ export async function getMenuSummary(
   const people = await getPeopleChoices(menu);
   return { menu, summary: summarizeMenu(options, people), people };
 }
+
+// রিপোর্টে এমপ্লয়ির বাছাই আর গেস্ট, দুটোই গোনা হয়
+const ALL_PICKS = `SELECT menu_id, snack_item_id FROM selections
+                   UNION ALL
+                   SELECT menu_id, snack_item_id FROM menu_guests`;
 
 export type PastMenu = {
   id: number;
@@ -360,12 +412,12 @@ export async function listPastMenus(now = new Date()): Promise<PastMenu[]> {
   const db = await getDb();
   const result = await db.execute(
     `SELECT m.id, m.menu_date, m.status,
-            COUNT(s.user_id) AS total_people,
+            COUNT(s.snack_item_id) AS total_people,
             COALESCE(SUM(mo.price), 0) AS total_cost,
             COALESCE(SUM(CASE WHEN mo.category = 'healthy' THEN 1 ELSE 0 END), 0) AS healthy_count,
             COALESCE(SUM(CASE WHEN mo.category = 'unhealthy' THEN 1 ELSE 0 END), 0) AS unhealthy_count
      FROM daily_menus m
-     LEFT JOIN selections s ON s.menu_id = m.id
+     LEFT JOIN (${ALL_PICKS}) s ON s.menu_id = m.id
      LEFT JOIN menu_options mo ON mo.menu_id = s.menu_id AND mo.snack_item_id = s.snack_item_id
      WHERE m.status IN ('closed', 'delivered')
      GROUP BY m.id
@@ -402,7 +454,7 @@ export async function getMonthlyReport(now = new Date()): Promise<MonthlyReportR
             SUM(CASE WHEN mo.category = 'unhealthy' THEN 1 ELSE 0 END) AS unhealthy_count,
             SUM(mo.price) AS total_cost
      FROM daily_menus m
-     JOIN selections s ON s.menu_id = m.id
+     JOIN (${ALL_PICKS}) s ON s.menu_id = m.id
      JOIN menu_options mo ON mo.menu_id = s.menu_id AND mo.snack_item_id = s.snack_item_id
      WHERE m.status IN ('closed', 'delivered')
      GROUP BY month
@@ -622,6 +674,7 @@ export async function chooseSnack(
           ON CONFLICT (menu_id, user_id) DO UPDATE SET
             snack_item_id = excluded.snack_item_id,
             is_default = 0,
+            assigned_by = NULL,
             updated_at = excluded.updated_at`,
     args: [userId, nowIso, menuId, snackItemId, nowIso],
   });
@@ -639,6 +692,84 @@ export async function clearChoice(menuId: number, userId: number, now = new Date
           WHERE menu_id = ? AND user_id = ?
             AND EXISTS (SELECT 1 FROM daily_menus WHERE id = ? AND status = 'open' AND cutoff_at > ?)`,
     args: [menuId, userId, menuId, now.toISOString()],
+  });
+  return null;
+}
+
+// ---------- অ্যাডমিন: কারো হয়ে বাছাই আর গেস্ট (খোলা বা বন্ধ মেনুতে, ডেলিভারির আগে) ----------
+
+const MENU_NOT_EDITABLE = "শুধু খোলা বা বন্ধ (ডেলিভারির আগে) মেনুতে এটা করা যায়";
+
+async function isEditableByAdmin(menuId: number, now: Date): Promise<boolean> {
+  const menu = await getMenu(menuId, now);
+  return menu !== null && (menu.status === "open" || menu.status === "closed");
+}
+
+// বন্ধ মেনুতে অটো-বসানো ডিফল্ট সারিটাও এতে বদলে যায়
+export async function assignSnack(
+  menuId: number,
+  userId: number,
+  snackItemId: number,
+  adminId: number,
+  now = new Date(),
+): Promise<string | null> {
+  if (!(await isEditableByAdmin(menuId, now))) return MENU_NOT_EDITABLE;
+
+  const db = await getDb();
+  const result = await db.execute({
+    sql: `INSERT INTO selections (menu_id, user_id, snack_item_id, is_default, assigned_by, updated_at)
+          SELECT mo.menu_id, u.id, mo.snack_item_id, 0, ?, ?
+          FROM menu_options mo
+          JOIN daily_menus m ON m.id = mo.menu_id
+          JOIN users u ON u.id = ? AND u.is_active = 1
+          WHERE mo.menu_id = ? AND mo.snack_item_id = ?
+            AND m.status IN ('open', 'closed')
+          ON CONFLICT (menu_id, user_id) DO UPDATE SET
+            snack_item_id = excluded.snack_item_id,
+            is_default = 0,
+            assigned_by = excluded.assigned_by,
+            updated_at = excluded.updated_at`,
+    args: [adminId, now.toISOString(), userId, menuId, snackItemId],
+  });
+  if (result.rowsAffected === 0) return "সেভ করা যায়নি। ইউজার সক্রিয় কিনা আর আইটেম মেনুতে আছে কিনা দেখুন।";
+  return null;
+}
+
+export async function addGuest(
+  menuId: number,
+  snackItemId: number,
+  name: string,
+  adminId: number,
+  now = new Date(),
+): Promise<string | null> {
+  if (!(await isEditableByAdmin(menuId, now))) return MENU_NOT_EDITABLE;
+
+  // নম্বর একই statement-এ হিসাব হয়, তাই একসাথে দুজন যোগ করলেও নম্বর মিলে যায় না
+  const db = await getDb();
+  const result = await db.execute({
+    sql: `INSERT INTO menu_guests (menu_id, guest_no, name, snack_item_id, assigned_by)
+          SELECT mo.menu_id,
+                 (SELECT COALESCE(MAX(guest_no), 0) + 1 FROM menu_guests WHERE menu_id = mo.menu_id),
+                 ?, mo.snack_item_id, ?
+          FROM menu_options mo
+          JOIN daily_menus m ON m.id = mo.menu_id
+          WHERE mo.menu_id = ? AND mo.snack_item_id = ?
+            AND m.status IN ('open', 'closed')`,
+    args: [name || null, adminId, menuId, snackItemId],
+  });
+  if (result.rowsAffected === 0) return "গেস্ট যোগ করা যায়নি";
+  return null;
+}
+
+export async function removeGuest(menuId: number, guestId: number, now = new Date()): Promise<string | null> {
+  if (!(await isEditableByAdmin(menuId, now))) return MENU_NOT_EDITABLE;
+
+  const db = await getDb();
+  await db.execute({
+    sql: `DELETE FROM menu_guests
+          WHERE id = ? AND menu_id = ?
+            AND EXISTS (SELECT 1 FROM daily_menus WHERE id = ? AND status IN ('open', 'closed'))`,
+    args: [guestId, menuId, menuId],
   });
   return null;
 }
@@ -708,11 +839,12 @@ export async function backToDraft(menuId: number, now = new Date()): Promise<str
   const result = await db.execute({
     sql: `UPDATE daily_menus SET status = 'draft', opened_at = NULL
           WHERE id = ? AND status = 'open'
-            AND NOT EXISTS (SELECT 1 FROM selections WHERE menu_id = ?)`,
-    args: [menuId, menuId],
+            AND NOT EXISTS (SELECT 1 FROM selections WHERE menu_id = ?)
+            AND NOT EXISTS (SELECT 1 FROM menu_guests WHERE menu_id = ?)`,
+    args: [menuId, menuId, menuId],
   });
   if (result.rowsAffected === 0) {
-    return "কেউ ইতিমধ্যে বাছাই করেছে, তাই খসড়ায় ফেরানো যাবে না";
+    return "কেউ ইতিমধ্যে বাছাই করেছে বা গেস্ট যোগ হয়েছে, তাই খসড়ায় ফেরানো যাবে না";
   }
   return null;
 }
